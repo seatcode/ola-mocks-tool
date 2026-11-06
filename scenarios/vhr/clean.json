@@ -1,0 +1,23 @@
+{
+  "name": "No warnings",
+  "description": "Maintenance due in 405 days / 149 km and no warning lights. Based on the vhr_maintenance.json and vhr_warnings.json mocks.",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/v2/vehicles/:vin/maintenance",
+      "status": 200,
+      "body": {
+        "inspectionDueDays": 405,
+        "inspectionDueKm": 149
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v3/vehicles/:vin/warninglights",
+      "status": 200,
+      "body": {
+        "statuses": []
+      }
+    }
+  ]
+}
