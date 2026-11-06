@@ -18,15 +18,25 @@ app.use(express.static(path.join(__dirname, 'public')));
 const FEATURES = Object.fromEntries(features.map((f) => [f.id, f]));
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
+// A field is a dropdown (options: [...]) unless it says type: 'number' (free number input; null = not sent)
+function isValidValue(fl, v) {
+    if (fl.type === 'number') return v === null || (typeof v === 'number' && Number.isFinite(v));
+    return fl.options.includes(v);
+}
+const isNullable = (fl) => fl.type === 'number' || fl.options.includes(null);
+// Identity of a route: "GET /v2/vehicles/:vin/status"
+const routeKey = (r) => `${String(r.method).toUpperCase()} ${r.path}`;
+
 // ---------------------------------------------------------------------------
 // In-memory state: one active scenario (and its state) per feature.
-// override = routes typed by hand in the JSON editor; while set, they replace the scenario's fixed routes.
+// overrides = routes typed by hand in the JSON editor, one per endpoint ({ "GET /path": route }); each one wins over the
+// scenario's fixed route and over the route generated from the selectors for that same endpoint.
 // mocking = true by default. false: the feature's requests go to the real backend (the scenario / state are kept for when it is switched on).
 // Only the feature's switch (and a reset) changes it: applying a scenario or editing never switches it back on.
 // ---------------------------------------------------------------------------
 const runtime = {};
 function resetFeature(f) {
-    runtime[f.id] = { scenario: null, modified: false, state: { ...f.defaultState }, override: null, mocking: true };
+    runtime[f.id] = { scenario: null, modified: false, state: { ...f.defaultState }, overrides: {}, mocking: true };
 }
 features.forEach(resetFeature);
 
@@ -41,10 +51,10 @@ let mockingEnabled = true;
 function validateScenario(feature, sc) {
     if (typeof sc !== 'object' || sc === null || Array.isArray(sc)) return ['The file must be a JSON object'];
     const errors = [];
-    const allowed = Object.fromEntries(feature.fields.map((fl) => [fl.key, fl.options]));
+    const byKey = Object.fromEntries(feature.fields.map((fl) => [fl.key, fl]));
     for (const [key, value] of Object.entries(sc.state || {})) {
-        if (!(key in allowed)) errors.push(`state.${key}: unknown field in ${feature.name}`);
-        else if (!allowed[key].includes(value)) errors.push(`state.${key}: invalid value (${JSON.stringify(value)})`);
+        if (!(key in byKey)) errors.push(`state.${key}: unknown field in ${feature.name}`);
+        else if (!isValidValue(byKey[key], value)) errors.push(`state.${key}: invalid value (${JSON.stringify(value)})`);
     }
     if (sc.routes !== undefined) errors.push(...validateRoutes(sc.routes));
     if (sc.mods !== undefined && !(Array.isArray(sc.mods) && sc.mods.every((m) => MODS.includes(m)))) {
@@ -101,10 +111,8 @@ const matches = (route, req) => String(route.method).toUpperCase() === req.metho
 
 function fixedRoutesOf(f) {
     const rt = runtime[f.id];
-    if (rt.override) return rt.override;
-    if (!rt.scenario) return [];
-    const { scenario } = readScenario(f, rt.scenario);
-    return scenario && scenario.routes ? scenario.routes : [];
+    const fromScenario = rt.scenario ? (readScenario(f, rt.scenario).scenario || {}).routes || [] : [];
+    return [...Object.values(rt.overrides), ...fromScenario.filter((r) => !(routeKey(r) in rt.overrides))];
 }
 
 // MOD currently selected in the Global feature (null = the real one, not forced)
@@ -114,7 +122,7 @@ const isUnavailable = (fl) => Boolean(fl.mods && currentMod() && !fl.mods.includ
 // The state used to build responses: unavailable fields are dropped (null = not sent)
 function stateFor(f) {
     const s = { ...runtime[f.id].state };
-    for (const fl of f.fields) if (isUnavailable(fl) && fl.options.includes(null)) s[fl.key] = null;
+    for (const fl of f.fields) if (isUnavailable(fl) && isNullable(fl)) s[fl.key] = null;
     return s;
 }
 
@@ -137,7 +145,7 @@ function recomputeModified(f) {
         const { scenario } = readScenario(f, rt.scenario);
         base = { ...f.defaultState, ...((scenario && scenario.state) || {}) };
     }
-    rt.modified = rt.override !== null || JSON.stringify(rt.state, Object.keys(rt.state).sort()) !== JSON.stringify(base, Object.keys(base).sort());
+    rt.modified = Object.keys(rt.overrides).length > 0 || JSON.stringify(rt.state, Object.keys(rt.state).sort()) !== JSON.stringify(base, Object.keys(base).sort());
 }
 
 // "Door open (test)" -> "door-open-test". It becomes the file name.
@@ -165,8 +173,10 @@ function describeFeature(f) {
         fixedRoutes: fixedRoutesOf(f).map((r) => `${String(r.method).toUpperCase()} ${r.path}`),
         // What is answered right now, as editable route objects (the JSON editor shows this)
         effectiveRoutes: effectiveRoutes(f),
-        // Routes typed by hand in the JSON editor (null when the selectors / scenario are in control)
-        overrideRoutes: rt.override,
+        // Endpoints whose response was typed by hand in the JSON editor
+        customKeys: Object.keys(rt.overrides),
+        // Every fixed route in force (scenario + hand-written), what a new scenario saves
+        currentFixedRoutes: fixedRoutesOf(f),
     };
 }
 
@@ -179,43 +189,68 @@ app.put('/api/features/:id/state', (req, res) => {
     const f = FEATURES[req.params.id];
     if (!f) return res.status(404).json({ error: `Unknown feature: ${req.params.id}` });
     const changes = req.body || {};
-    const allowed = Object.fromEntries(f.fields.map((fl) => [fl.key, fl.options]));
+    const byKey = Object.fromEntries(f.fields.map((fl) => [fl.key, fl]));
     for (const [key, value] of Object.entries(changes)) {
-        if (!(key in allowed)) return res.status(400).json({ error: `Unknown field: ${key}` });
-        if (!allowed[key].includes(value)) return res.status(400).json({ error: `Invalid value for ${key}: ${value}`, allowed: allowed[key] });
+        if (!(key in byKey)) return res.status(400).json({ error: `Unknown field: ${key}` });
+        if (!isValidValue(byKey[key], value)) {
+            return res.status(400).json({ error: `Invalid value for ${key}: ${JSON.stringify(value)}`, allowed: byKey[key].options || byKey[key].type });
+        }
     }
     const rt = runtime[f.id];
     rt.state = { ...rt.state, ...changes };
-    rt.override = null; // touching a selector gives control back to the selectors
+    // touching a selector gives control back to the selectors for the endpoints they generate
+    for (const g of f.routes || []) delete rt.overrides[routeKey(g)];
     recomputeModified(f);
     res.json({ feature: f.id, scenario: rt.scenario, modified: rt.modified, state: rt.state });
 });
 
-// Replace what the feature answers with routes written by hand (the JSON editor):
-//   PUT /api/features/rvs/routes {"routes":[{"method":"GET","path":"/v2/vehicles/:vin/status","status":200,"body":{…}}]}
+// Write the response of ONE endpoint by hand (the JSON editor), over the scenario and the selectors:
+//   PUT /api/features/rvs/route {"route":{"method":"GET","path":"/v2/vehicles/:vin/status","status":200,"body":{…}}}
+app.put('/api/features/:id/route', (req, res) => {
+    const f = FEATURES[req.params.id];
+    if (!f) return res.status(404).json({ error: `Unknown feature: ${req.params.id}` });
+    const route = (req.body || {}).route;
+    const errors = validateRoutes([route]);
+    if (errors.length) return res.status(400).json({ error: errors.join('; ').replace(/routes\[0\]/g, 'route') });
+    runtime[f.id].overrides[routeKey(route)] = route;
+    recomputeModified(f);
+    console.log(`[route] ${f.id}: custom JSON applied to ${routeKey(route)}`);
+    res.json({ feature: f.id, scenario: runtime[f.id].scenario, modified: runtime[f.id].modified });
+});
+
+// Discard the hand-written response of one endpoint: DELETE /api/features/rvs/route?method=GET&path=/v2/vehicles/:vin/status
+app.delete('/api/features/:id/route', (req, res) => {
+    const f = FEATURES[req.params.id];
+    if (!f) return res.status(404).json({ error: `Unknown feature: ${req.params.id}` });
+    delete runtime[f.id].overrides[routeKey({ method: req.query.method, path: req.query.path })];
+    recomputeModified(f);
+    res.json({ feature: f.id, scenario: runtime[f.id].scenario, modified: runtime[f.id].modified });
+});
+
+// Replace ALL the hand-written responses at once: PUT /api/features/rvs/routes {"routes":[…]}
 app.put('/api/features/:id/routes', (req, res) => {
     const f = FEATURES[req.params.id];
     if (!f) return res.status(404).json({ error: `Unknown feature: ${req.params.id}` });
     const routes = (req.body || {}).routes;
     const errors = validateRoutes(routes);
     if (errors.length) return res.status(400).json({ error: errors.join('; ') });
-    runtime[f.id].override = routes;
+    runtime[f.id].overrides = Object.fromEntries(routes.map((r) => [routeKey(r), r]));
     recomputeModified(f);
-    console.log(`[routes] ${f.id}: custom JSON applied (${routes.length} route${routes.length === 1 ? '' : 's'})`);
+    console.log(`[route] ${f.id}: ${routes.length} custom response${routes.length === 1 ? '' : 's'} applied`);
     res.json({ feature: f.id, scenario: runtime[f.id].scenario, modified: runtime[f.id].modified });
 });
 
-// Discard the hand-written JSON and go back to the selectors / scenario: DELETE /api/features/rvs/routes
+// Discard every hand-written response of the feature: DELETE /api/features/rvs/routes
 app.delete('/api/features/:id/routes', (req, res) => {
     const f = FEATURES[req.params.id];
     if (!f) return res.status(404).json({ error: `Unknown feature: ${req.params.id}` });
-    runtime[f.id].override = null;
+    runtime[f.id].overrides = {};
     recomputeModified(f);
     res.json({ feature: f.id, scenario: runtime[f.id].scenario, modified: runtime[f.id].modified });
 });
 
 function applyScenario(f, name, scenario) {
-    runtime[f.id] = { scenario: name, modified: false, state: { ...f.defaultState, ...(scenario.state || {}) }, override: null, mocking: runtime[f.id].mocking };
+    runtime[f.id] = { scenario: name, modified: false, state: { ...f.defaultState, ...(scenario.state || {}) }, overrides: {}, mocking: runtime[f.id].mocking };
     console.log(`[scenario] ${f.id}: ${name}`);
 }
 

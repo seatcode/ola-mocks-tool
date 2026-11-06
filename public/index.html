@@ -49,7 +49,7 @@
   .card > h2 { margin-bottom:12px; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:12px; }
   label { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
-  select, input[type=text], textarea { width:100%; padding:7px 8px; font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; }
+  select, input[type=text], input[type=number], textarea { width:100%; padding:7px 8px; font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; }
   textarea { font:12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; min-height:130px; resize:vertical; }
   button { padding:8px 14px; font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
   button.active, button.primary { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
@@ -78,7 +78,6 @@
   .tag.on { color:var(--ok); border-color:var(--ok); }
   h3 { font-size:13px; margin:18px 0 10px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
   h3:first-child { margin-top:0; }
-  textarea.json { min-height:320px; }
   details summary { cursor:pointer; font-size:13px; color:var(--muted); margin-bottom:6px; }
   pre { margin:0 0 12px; overflow:auto; font-size:12.5px; }
   .route { font-size:12px; color:var(--muted); margin:0 0 4px; }
@@ -150,14 +149,18 @@ const MESSAGES = {
     'editor.title': 'Response',
     'tab.selectors': 'Selectors',
     'tab.json': 'JSON',
-    'selectors.customNote': 'A custom JSON is in use for this feature. Changing any selector discards it.',
-    'json.hint': 'JSON array of routes. Each one accepts method, path, status, delayMs, headers and body.',
-    'json.noteGenerated': 'This is what is answered right now. Applying your edits makes this JSON the response; it stays that way until you change a selector, pick a scenario or discard it.',
-    'json.noteCustom': 'A custom JSON is in use for this feature.',
-    'json.apply': 'Apply JSON',
+    'selectors.customNote': 'Custom JSON is in use for: {list}. Changing a selector discards it for the endpoints the selectors generate.',
+    'json.hint': 'JSON of this endpoint: method, path, status, delayMs, headers and body. Method and path must stay the same.',
+    'json.noteCustom': 'This endpoint uses your custom JSON, over the scenario and the selectors. Discard it to go back.',
+    'json.noteLive': 'This is what it answers now. Applying your edits makes this JSON its response, over the scenario and the selectors.',
+    'json.noteNone': 'No mock defined yet: it goes to the real backend. Applying this JSON defines one.',
+    'json.notObject': 'The JSON must be a single route object, not a list.',
+    'json.keyChanged': 'Method and path must stay {key}.',
+    'endpoint.custom': 'Custom JSON',
+    'json.apply': 'Apply',
     'json.discard': 'Discard custom JSON',
     'json.invalid': 'Not valid JSON: {msg}',
-    'form.overrideNote': 'The custom JSON currently in use will be saved as fixed responses.',
+    'form.overrideNote': 'The fixed responses and custom JSON currently in use will be saved in the scenario.',
     'flash.jsonApplied': 'JSON applied',
     'flash.jsonDiscarded': 'Custom JSON discarded',
     'form.name': 'Name',
@@ -285,7 +288,7 @@ function render() {
       <div><label for="dName">${esc(t('form.name'))}</label><input type="text" id="dName" maxlength="80" value="${esc(draft.name)}"></div>
       <div><label for="dDesc">${esc(t('form.description'))}</label><input type="text" id="dDesc" value="${esc(draft.description)}"></div>
       ${f.fields.length ? `<div class="note" style="margin:0">${esc(t('form.stateNote'))}</div>` : ''}
-      ${f.overrideRoutes ? `<div class="note" style="margin:0">${esc(t('form.overrideNote'))}</div>` : ''}
+      ${f.currentFixedRoutes.length ? `<div class="note" style="margin:0">${esc(t('form.overrideNote'))}</div>` : ''}
       <div><label>${esc(t('form.mods'))}</label><div class="checks">${data.mods.map(m => `<label><input type="checkbox" data-mod="${esc(m)}" ${draft.mods.includes(m) ? 'checked' : ''}> ${esc(modText(m))}</label>`).join('')}</div></div>
       <details ${(!f.fields.length || draft.routes) ? 'open' : ''}><summary>${esc(t(f.fields.length ? 'form.routesOptional' : 'form.routes'))}</summary>
         <textarea id="dRoutes" spellcheck="false" placeholder="${esc(placeholder)}">${esc(draft.routes)}</textarea>
@@ -306,34 +309,58 @@ function render() {
   const answers = Object.fromEntries(f.effectiveRoutes.map(r => [keyOf(r), r]));
   const endpointKeys = [...f.paths, ...Object.keys(answers).filter(k => !f.paths.includes(k))];
   const live = f.mocking && data.mockingEnabled;
+  // Summary of an endpoint: route, whether it is mocked, status / delay if unusual, and whether it has custom JSON
+  const epHead = k => {
+    const r = answers[k];
+    const mocked = Boolean(r) && live;
+    const extra = r && (r.status && r.status !== 200 || r.delayMs) ? `<span class="tag">${esc([r.status && r.status !== 200 ? r.status : '', r.delayMs ? r.delayMs + ' ms' : ''].filter(Boolean).join(' · '))}</span>` : '';
+    const custom = f.customKeys.includes(k) ? `<span class="tag on">${esc(t('endpoint.custom'))}</span>` : '';
+    return `<span class="eph"><code>${esc(k)}</code><span class="tag ${mocked ? 'on' : ''}">${esc(t(mocked ? 'endpoint.mocked' : 'endpoint.real'))}</span>${custom}${extra}</span>`;
+  };
   const endpoints = endpointKeys.map(k => {
     const r = answers[k];
     const open = (f.id + '|' + k) in endpointOpen ? endpointOpen[f.id + '|' + k] : endpointKeys.length === 1;
-    const mocked = Boolean(r) && live;
-    const extra = r && (r.status && r.status !== 200 || r.delayMs) ? ` <span class="tag">${esc([r.status && r.status !== 200 ? r.status : '', r.delayMs ? r.delayMs + ' ms' : ''].filter(Boolean).join(' · '))}</span>` : '';
     const body = r
       ? `${live ? '' : `<div class="note" style="margin:0 0 8px">${esc(t('endpoint.pending'))}</div>`}<pre>${esc(JSON.stringify(r.body === undefined ? {} : r.body, null, 2))}</pre>`
       : `<div class="note" style="margin:0 0 10px">${esc(t('endpoint.noMock'))}</div>`;
-    return `<details class="ep" data-pk="${esc(f.id + '|' + k)}" ${open ? 'open' : ''}><summary><span class="eph"><code>${esc(k)}</code><span class="tag ${mocked ? 'on' : ''}">${esc(t(mocked ? 'endpoint.mocked' : 'endpoint.real'))}</span>${extra}</span></summary>${body}</details>`;
+    return `<details class="ep" data-pk="${esc(f.id + '|' + k)}" ${open ? 'open' : ''}><summary>${epHead(k)}</summary>${body}</details>`;
   }).join('');
 
+  // One input per field: a dropdown, or a free number input (empty = not sent)
+  const control = (f, fl) => {
+    const common = `id="${esc(fl.key)}" data-key="${esc(fl.key)}" ${fl.unavailable ? 'disabled' : ''}`;
+    const cur = f.state[fl.key];
+    if (fl.type === 'number') {
+      return `<input ${common} type="number" step="any" data-type="number" value="${esc(cur === null || cur === undefined ? '' : cur)}" placeholder="${esc(t('value.null'))}">`;
+    }
+    return `<select ${common}>${fl.options.map(v => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(tv(fl.key, v))}</option>`).join('')}</select>`;
+  };
+
   const selectorsPanel = `
-    ${f.overrideRoutes ? `<div class="note err" style="margin:0 0 12px">${esc(t('selectors.customNote'))}</div>` : ''}
+    ${f.customKeys.length ? `<div class="note err" style="margin:0 0 12px">${esc(t('selectors.customNote', { list: f.customKeys.join(', ') }))}</div>` : ''}
     ${groups.map(g => `<h3>${esc(tr('group.' + g.name, g.name))}</h3><div class="grid">${g.fields.map(fl => `
       <div><label for="${esc(fl.key)}">${esc(tr('field.' + fl.key, fl.label))}</label>
-      <select id="${esc(fl.key)}" data-key="${esc(fl.key)}" ${fl.unavailable ? 'disabled' : ''}>${fl.options.map(v => `<option value="${v}" ${String(f.state[fl.key]) === String(v) ? 'selected' : ''}>${esc(tv(fl.key, v))}</option>`).join('')}</select>
+      ${control(f, fl)}
       ${fl.unavailable ? `<div class="hint err">${esc(t('field.unavailable', { mod: modText(data.mod) }))}</div>` : ''}
       ${fl.hint ? `<div class="hint">${esc(tr('hint.' + fl.key, fl.hint))}</div>` : ''}</div>`).join('')}
     </div>`).join('')}`;
 
-  const jsonText = jsonDrafts[f.id] ?? JSON.stringify(f.overrideRoutes || f.effectiveRoutes, null, 2);
-  const jsonPanel = `
-    <textarea class="json" id="jsonEditor" spellcheck="false" aria-label="${esc(t('tab.json'))}">${esc(jsonText)}</textarea>
-    <div class="note">${esc(t('json.hint'))}</div>
-    <div class="note">${esc(t(f.overrideRoutes ? 'json.noteCustom' : 'json.noteGenerated'))}</div>
-    <div class="note err" id="jsonErr">${esc(jsonErrors[f.id] || '')}</div>
-    <div class="row" style="margin-top:12px"><button class="primary" id="jsonApply">${esc(t('json.apply'))}</button>
-      ${f.overrideRoutes ? `<button id="jsonDiscard">${esc(t('json.discard'))}</button>` : ''}</div>`;
+  // JSON tab: one editor per endpoint, each applied on its own
+  const jsonPanel = endpointKeys.map(k => {
+    const dk = f.id + '|' + k;
+    const r = answers[k];
+    const [m, ...rest] = k.split(' ');
+    const text = jsonDrafts[dk] ?? JSON.stringify(r || { method: m, path: rest.join(' '), status: 200, body: {} }, null, 2);
+    const custom = f.customKeys.includes(k);
+    const open = dk in endpointOpen ? endpointOpen[dk] : (endpointKeys.length === 1 || Boolean(jsonErrors[dk]));
+    return `<details class="ep" data-pk="${esc(dk)}" ${open ? 'open' : ''}><summary>${epHead(k)}</summary>
+      <textarea class="json" data-jedit rows="${Math.min(18, Math.max(6, text.split('\n').length + 1))}" spellcheck="false" aria-label="${esc(k)}">${esc(text)}</textarea>
+      <div class="note">${esc(t('json.hint'))}</div>
+      <div class="note">${esc(t(custom ? 'json.noteCustom' : r ? 'json.noteLive' : 'json.noteNone'))}</div>
+      <div class="note err">${esc(jsonErrors[dk] || '')}</div>
+      <div class="row" style="margin:12px 0 4px"><button class="primary" data-japply="${esc(k)}">${esc(t('json.apply'))}</button>
+        ${custom ? `<button data-jdiscard="${esc(k)}">${esc(t('json.discard'))}</button>` : ''}</div></details>`;
+  }).join('');
 
   const editor = `<div class="card"><div class="cardhead"><h2>${esc(t('editor.title'))}</h2></div>
     ${hasSel ? `<div class="tabs" role="tablist">
@@ -352,20 +379,18 @@ function render() {
       <div class="row">${scenarios}</div>
       <div class="note">${info.join('<br>')}</div><div class="note err">${errors}</div>${form}</div>
     ${editor}
-    <div class="card"><h2>${esc(t('endpoints.title'))}</h2>
+    ${tab === 'selectors' ? `<div class="card"><h2>${esc(t('endpoints.title'))}</h2>
       ${endpoints}
-      <div class="note">${esc(t('endpoints.note'))}</div></div>`;
+      <div class="note">${esc(t('endpoints.note'))}</div></div>` : ''}`;
 
   document.getElementById('mockSwitch').onclick = async () => { await api('POST', `/api/features/${f.id}/mocking`, { enabled: !f.mocking }); await load(); };
   document.querySelectorAll('details[data-pk]').forEach(d => d.ontoggle = () => { endpointOpen[d.dataset.pk] = d.open; });
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tabs[f.id] = b.dataset.tab; render(); });
-  const jed = document.getElementById('jsonEditor');
-  if (jed) {
-    jed.oninput = () => { jsonDrafts[f.id] = jed.value; };
-    document.getElementById('jsonApply').onclick = () => applyJson(f, jed.value);
-    const dis = document.getElementById('jsonDiscard');
-    if (dis) dis.onclick = async () => { await api('DELETE', `/api/features/${f.id}/routes`); await load(t('flash.jsonDiscarded')); };
-  }
+  document.querySelectorAll('[data-jedit]').forEach(ta => {
+    ta.oninput = () => { jsonDrafts[f.id + '|' + ta.closest('details').dataset.pk.split('|').slice(1).join('|')] = ta.value; };
+  });
+  document.querySelectorAll('[data-japply]').forEach(b => b.onclick = () => applyRoute(f, b.dataset.japply, b.closest('details').querySelector('textarea').value));
+  document.querySelectorAll('[data-jdiscard]').forEach(b => b.onclick = () => discardRoute(f, b.dataset.jdiscard));
   document.querySelectorAll('[data-sc]').forEach(b => b.onclick = async () => { const r = await api('POST', `/api/features/${f.id}/scenario/${b.dataset.sc}`); await load(r.error ? t('flash.error', { msg: r.error }) : t('flash.applied')); });
   const clr = document.getElementById('clearSc'); if (clr) clr.onclick = async () => { await api('POST', `/api/features/${f.id}/reset`); await load(t('flash.cleared')); };
   document.getElementById('newSc').onclick = () => { draft = draft ? null : { id: f.id, name: '', description: '', routes: '', mods: [], error: '' }; render(); const n = document.getElementById('dName'); if (n) n.focus(); };
@@ -377,23 +402,36 @@ function render() {
     document.getElementById('dCancel').onclick = () => { draft = null; render(); };
     document.getElementById('dSave').onclick = () => saveDraft(f);
   }
-  document.querySelectorAll('select').forEach(s => s.onchange = async () => {
+  document.querySelectorAll('[data-key]').forEach(s => s.onchange = async () => {
     const raw = s.value;
-    const value = raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : raw;
+    let value;
+    if (s.dataset.type === 'number') value = raw.trim() === '' ? null : Number(raw);
+    else value = raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : raw;
     const r = await api('PUT', `/api/features/${f.id}/state`, { [s.dataset.key]: value });
     await load(r.error ? t('flash.error', { msg: r.error }) : t('flash.updated'));
   });
 }
 
-async function applyJson(f, text) {
-  jsonDrafts[f.id] = text; // keep what was typed if it fails
-  let routes;
-  try { routes = JSON.parse(text); }
-  catch (e) { jsonErrors[f.id] = t('json.invalid', { msg: e.message }); return render(); }
-  const r = await api('PUT', `/api/features/${f.id}/routes`, { routes });
-  if (r.error) { jsonErrors[f.id] = r.error; return render(); }
-  delete jsonErrors[f.id];
-  await load(t('flash.jsonApplied'));
+// Apply the JSON typed for one endpoint
+async function applyRoute(f, k, text) {
+  const dk = f.id + '|' + k;
+  jsonDrafts[dk] = text; // keep what was typed if it fails
+  let route;
+  try { route = JSON.parse(text); }
+  catch (e) { jsonErrors[dk] = t('json.invalid', { msg: e.message }); return render(); }
+  if (!route || typeof route !== 'object' || Array.isArray(route)) { jsonErrors[dk] = t('json.notObject'); return render(); }
+  if (`${String(route.method).toUpperCase()} ${route.path}` !== k) { jsonErrors[dk] = t('json.keyChanged', { key: k }); return render(); }
+  const r = await api('PUT', `/api/features/${f.id}/route`, { route });
+  if (r.error) { jsonErrors[dk] = r.error; return render(); }
+  delete jsonErrors[dk]; delete jsonDrafts[dk];
+  await load(t('flash.jsonApplied'), true);
+}
+
+async function discardRoute(f, k) {
+  const [m, ...rest] = k.split(' ');
+  await api('DELETE', `/api/features/${f.id}/route?method=${encodeURIComponent(m)}&path=${encodeURIComponent(rest.join(' '))}`);
+  delete jsonErrors[f.id + '|' + k]; delete jsonDrafts[f.id + '|' + k];
+  await load(t('flash.jsonDiscarded'), true);
 }
 
 async function saveDraft(f) {
@@ -406,15 +444,15 @@ async function saveDraft(f) {
   if (draft.routes.trim()) {
     try { body.routes = JSON.parse(draft.routes); }
     catch (e) { draft.error = t('form.routesInvalid', { msg: e.message }); return render(); }
-  } else if (f.overrideRoutes) body.routes = f.overrideRoutes; // keep the hand-written JSON in the scenario
+  } else if (f.currentFixedRoutes.length) body.routes = f.currentFixedRoutes; // keep the fixed responses and custom JSON in force
   const r = await api('POST', `/api/features/${f.id}/scenarios`, body);
   if (r.error) { draft.error = r.error; return render(); }
   draft = null;
   await load(t('flash.created'));
 }
 
-async function load(msg) {
-  if (msg) { for (const k of Object.keys(jsonDrafts)) delete jsonDrafts[k]; for (const k of Object.keys(jsonErrors)) delete jsonErrors[k]; } // a change made elsewhere makes typed JSON stale
+async function load(msg, keep) {
+  if (msg && !keep) { for (const k of Object.keys(jsonDrafts)) delete jsonDrafts[k]; for (const k of Object.keys(jsonErrors)) delete jsonErrors[k]; } // a change made elsewhere makes typed JSON stale
   data = await api('GET', '/api/state');
   paintMaster();
   try { document.getElementById('targetInfo').textContent = t('header.backend', { host: new URL(data.target).host }); } catch (e) {}

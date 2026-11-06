@@ -73,25 +73,25 @@ La feature **Global** reúne ajustes que afectan a todo el vehículo:
 La tarjeta *Response* de cada feature con selectores (RVS) tiene dos pestañas:
 
 - **Selectors:** formulario con los campos del vehículo.
-- **JSON:** la respuesta como JSON editable (un array de rutas, con el mismo formato que `routes` de un escenario). *Apply JSON* la aplica tal cual. Las features sin selectores (VHR, Driving Data) solo tienen el editor JSON.
+- **JSON:** un editor **por endpoint**, cada uno desplegable. Contiene la ruta de ese endpoint como JSON (`method`, `path`, `status`, opcionalmente `delayMs` y `headers`, y `body`); *Apply* lo aplica solo a ese endpoint y *Discard custom JSON* lo quita. `method` y `path` no se pueden cambiar. Un endpoint sin mock definido muestra una plantilla: aplicarla le define uno. Las features sin selectores (VHR, Driving Data) solo tienen esta vista.
 
-Debajo, la tarjeta **Endpoints** lista los endpoints de la feature, cada uno desplegable con la respuesta que se enviará y una etiqueta *Mocked* o *Real backend* según vaya al mock o al backend real. Si una feature solo tiene un endpoint, arranca desplegado.
+Un JSON aplicado a un endpoint manda sobre el escenario y sobre los selectores **para ese endpoint**; los demás no se tocan. Cambiar un selector descarta el JSON de los endpoints que generan los selectores (p. ej. `/status` en RVS), pero no el de los que son respuestas fijas. El JSON aplicado es literal, así que campos como `updatedAt` quedan con el valor que tengan en el texto. Si guardas un escenario nuevo con el icono **+**, se guardan en sus `routes` las respuestas fijas y los JSON propios que estén en vigor.
 
-Un JSON aplicado manda sobre los selectores y sobre las respuestas fijas del escenario hasta que cambies un selector, apliques otro escenario o pulses *Discard custom JSON*. Ojo: el JSON aplicado es literal, así que campos como `updatedAt` quedan con el valor que tengan en el texto. Si guardas un escenario nuevo con un JSON aplicado, ese JSON se guarda en sus `routes`.
+### VHR: `/maintenance`
 
-### RVS: campos de `state`
+La respuesta de `GET /v2/vehicles/:vin/maintenance` se genera desde campos, con esta forma:
 
-| Campos | Valores |
-|---|---|
-| `locked` | `true`, `false` |
-| `lights`, `engine` | `"on"`, `"off"`, `"unknown"`, `null` |
-| `hood`, `trunk`, `sunRoof`, `doorFrontLeft/FrontRight/RearLeft/RearRight`, `windowFrontLeft/FrontRight/RearLeft/RearRight` | `"open"`, `"closed"`, `"unknown"`, `null` |
+```json
+{
+  "inspectionDue": { "duration": { "value": 405, "unit": "days" }, "distance": { "value": 149, "unit": "km" } },
+  "oilServiceDue": { "duration": { "value": 180, "unit": "days" }, "distance": { "value": 4200, "unit": "km" } },
+  "adblueDue": { "value": 2400, "unit": "km" }
+}
+```
 
-Por defecto todo está cerrado y apagado, incluido el techo solar; el motor solo se envía en MOD4 y MOD5 (o sin MOD elegido). `null` significa que el campo no se envía y la app no lo muestra.
+Las unidades son siempre `days` y `km` y no se pueden cambiar desde la GUI. Los valores son numéricos; un campo vacío no se envía (y si falta el valor, no se envía ese bloque). Los BEV (MOD4 y MOD5) no tienen aceite ni AdBlue: con esos MOD elegidos en Global, esos campos se desactivan y no salen. Los valores por defecto de inspección vienen de tus mocks antiguos; los de aceite y AdBlue son provisionales. `/warninglights` sigue siendo una respuesta fija del escenario (p. ej. *No warnings*).
 
-## Idioma de la web
-
-La web está siempre en inglés. Los textos están en un diccionario al principio del script de `public/index.html` (`MESSAGES`), preparado para añadir más idiomas, pero no hay selector de idioma. Los nombres y descripciones de los escenarios y las etiquetas de los campos vienen de los ficheros de datos y se escriben en inglés.
+En un escenario de VHR, los campos van en `state` con estos nombres: `inspectionDays`, `inspectionKm`, `oilDays`, `oilKm`, `adblueKm`.
 
 ## Añadir una feature nueva
 
@@ -99,7 +99,7 @@ La web está siempre en inglés. Los textos están en un diccionario al principi
 2. Regístrala en `features/index.js`.
 3. Crea la carpeta `scenarios/<id>/` con sus escenarios.
 
-Si quiere selectores en la web, define `fields` (ver `features/rvs.js`) y `routes` con una función `build(state)` que genere la respuesta.
+Si quiere selectores en la web, define `fields` (ver `features/rvs.js` para desplegables y `features/vhr.js` para campos numéricos `type: 'number'`) y `routes` con una función `build(state)` que genere la respuesta.
 
 ## API (para tests automáticos)
 
@@ -107,7 +107,8 @@ Si quiere selectores en la web, define `fields` (ver `features/rvs.js`) y `route
 - `POST /api/features/{feature}/scenario/{nombre}`: aplica un escenario (nombre del fichero sin `.json`).
 - `POST /api/features/{feature}/scenarios` con `{"name":"…","description":"…","state":{…},"routes":[…]}`: crea el fichero del escenario y lo aplica.
 - `PUT /api/features/{feature}/state` con `{"lights":"on"}`: cambia campos sueltos .
-- `PUT /api/features/{feature}/routes` con `{"routes":[…]}`: aplica un JSON escrito a mano (el editor JSON de la web). `DELETE` en la misma ruta lo descarta.
+- `PUT /api/features/{feature}/route` con `{"route":{…}}`: aplica un JSON escrito a mano a un endpoint (el editor JSON de la web). `DELETE /api/features/{feature}/route?method=GET&path=/ruta` lo descarta.
+- `PUT /api/features/{feature}/routes` con `{"routes":[…]}`: aplica varios a la vez, sustituyendo los que hubiera. `DELETE` en la misma ruta quita todos.
 - `POST /api/features/{feature}/mocking` con `{"enabled":false}`: enciende o apaga el mock de esa feature (apagado = backend real).
 - `POST /api/features/{feature}/reset`: quita el escenario de esa feature y la deja con el mock encendido.
 - `POST /api/reset`: restablece todas las features.
