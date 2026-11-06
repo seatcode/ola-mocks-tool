@@ -72,7 +72,10 @@
   .tab:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
   details.ep { border-top:1px solid var(--line); padding:8px 0 2px; }
   details.ep:last-child { border-bottom:1px solid var(--line); margin-bottom:4px; }
-  details.ep > summary { color:var(--text); margin-bottom:8px; }
+  details.ep > summary { color:var(--text); margin-bottom:8px; cursor:pointer; }
+  details.ep > summary .eph { display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; vertical-align:middle; }
+  .tag { font-size:11px; padding:1px 7px; border:1px solid var(--line); border-radius:10px; color:var(--muted); }
+  .tag.on { color:var(--ok); border-color:var(--ok); }
   h3 { font-size:13px; margin:18px 0 10px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
   h3:first-child { margin-top:0; }
   textarea.json { min-height:320px; }
@@ -91,8 +94,9 @@
   <strong>OLA Mocks</strong>
   <span id="targetInfo" class="note" style="margin:0"></span>
   <div class="spacer"></div>
-  <span id="charlesInfo" class="note" style="margin:0"></span>
-  <button id="charlesBtn" disabled></button>
+  <div class="mock" style="padding:0"><span id="masterLabel"></span>
+    <button class="switch" id="masterSwitch" role="switch" aria-checked="true"><span class="knob"></span></button></div>
+
   <button id="resetBtn"></button>
   <button id="themeBtn" class="icon-btn"></button>
 </header>
@@ -112,22 +116,19 @@
 const MESSAGES = {
   en: {
     'header.backend': 'Real backend: {host}',
+    'header.allMocks': 'All mocks',
+    'header.allMocksOn': 'Mocks are active. Click to pause them all and send everything to the real backend.',
+    'header.allMocksOff': 'All mocks are paused: everything goes to the real backend. Click to resume.',
+    'banner.paused': 'All mocks are paused: every request goes to the real backend. Each feature keeps its scenario and state; switch "All mocks" back on to resume.',
     'feature.mocking': 'Mocking',
     'feature.mockingOn': 'Answered by the mocks. Click to send this feature to the real backend.',
     'feature.mockingOff': 'Going to the real backend. Click to mock it.',
-    'feature.realNote': 'Mocking is off: the requests of this feature go to the real backend. Applying a scenario, changing a selector or applying JSON switches it on.',
+    'feature.realNote': 'Mocking is off: the requests of this feature go to the real backend. Switch it on to use the scenario, selectors or JSON below.',
     'badge.real': 'Real backend',
     'header.resetAll': 'Reset all',
-    'header.resetAllTitle': 'Removes every scenario, switches every mock off and goes back to the default values',
+    'header.resetAllTitle': 'Removes every scenario, switches every mock back on and goes back to the default values',
     'theme.toLight': 'Switch to light mode',
     'theme.toDark': 'Switch to dark mode',
-    'charles.checking': 'Charles…',
-    'charles.unavailable': 'Charles unavailable',
-    'charles.on': 'Map Remote: ON',
-    'charles.off': 'Map Remote: OFF',
-    'charles.onTitle': 'The apps use the mocks. Click to disable.',
-    'charles.offTitle': 'The apps talk to the real backend. Click to enable.',
-    'charles.offNote': 'The apps talk to the real backend.',
     'badge.default': 'Default',
     'badge.none': 'No scenario',
     'badge.modified': ' · modified',
@@ -140,9 +141,12 @@ const MESSAGES = {
     'info.noneRoutes': 'No scenario applied: this feature does not answer anything from here.',
     'info.fixed': 'Fixed responses from the scenario:',
     'error.file': 'Error in {file}: {msg}',
-    'routes.title': 'Routes of this feature',
-    'routes.note': 'While the feature is mocked, these routes are answered here; everything else goes to the real backend.',
-    'preview.title': 'Response that will be sent',
+    'endpoints.title': 'Endpoints',
+    'endpoints.note': 'While the feature is mocked, its endpoints are answered here; everything else goes to the real backend.',
+    'endpoint.mocked': 'Mocked',
+    'endpoint.real': 'Real backend',
+    'endpoint.noMock': 'No mock defined for this endpoint: it always goes to the real backend. Define one with a scenario or the JSON editor.',
+    'endpoint.pending': 'This is what it will answer once mocking is on.',
     'editor.title': 'Response',
     'tab.selectors': 'Selectors',
     'tab.json': 'JSON',
@@ -216,7 +220,7 @@ let draft = null; // new-scenario form: { id, name, description, routes, error }
 const tabs = {};        // selected editor tab per feature: 'selectors' | 'json'
 const jsonDrafts = {};  // JSON editor text typed but not applied yet, per feature
 const jsonErrors = {};  // last error shown under the JSON editor, per feature
-const previewOpen = {}; // open/closed state of each endpoint block in the response preview
+const endpointOpen = {}; // open/closed state of each endpoint block
 
 async function api(method, url, body) {
   const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined });
@@ -251,6 +255,8 @@ function render() {
   if (draft && draft.id !== f.id) draft = null;
 
   // Scenarios
+  const mismatch = s => Boolean(s.mods && data.mod && !s.mods.includes(data.mod));
+  const modList = s => s.mods.map(modText).join(', ');
   const info = [];
   if (f.scenario) {
     const sc = f.scenarios.find(s => s.key === f.scenario);
@@ -260,8 +266,6 @@ function render() {
   } else info.push(esc(t(f.fields.length ? 'info.noneFields' : 'info.noneRoutes')));
   if (f.fixedRoutes.length) info.push(esc(t('info.fixed')) + ' ' + f.fixedRoutes.map(r => '<code>' + esc(r) + '</code>').join(', '));
 
-  const mismatch = s => Boolean(s.mods && data.mod && !s.mods.includes(data.mod));
-  const modList = s => s.mods.map(modText).join(', ');
   const scenarios = f.scenarios.length
     ? f.scenarios.map(s => `<button data-sc="${esc(s.key)}" class="${f.scenario === s.key ? 'active' : ''} ${mismatch(s) ? 'dim' : ''}" title="${esc([s.description, s.mods ? t('scenarios.meantFor', { list: modList(s) }) : ''].filter(Boolean).join(' — '))}">${esc(s.name)}</button>`).join('')
     : `<span class="note" style="margin:0">${esc(t('scenarios.empty', { id: f.id }))}</span>`;
@@ -296,11 +300,21 @@ function render() {
   const tab = hasSel ? (tabs[f.id] || 'selectors') : 'json';
   const groups = [];
   for (const fl of f.fields) { let g = groups.find(x => x.name === fl.group); if (!g) groups.push(g = { name: fl.group, fields: [] }); g.fields.push(fl); }
-  // One collapsible block per endpoint. With a single endpoint it starts open; the choice is remembered across re-renders.
-  const previews = f.previews.map(p => {
-    const k = f.id + '|' + p.route;
-    const open = k in previewOpen ? previewOpen[k] : f.previews.length === 1;
-    return `<details class="ep" data-pk="${esc(k)}" ${open ? 'open' : ''}><summary><code>${esc(p.route)}</code></summary><pre>${esc(JSON.stringify(p.body, null, 2))}</pre></details>`;
+  // One collapsible block per endpoint: the feature's documented paths plus any extra route a scenario / JSON defines.
+  // With a single endpoint it starts open; the choice is remembered across re-renders.
+  const keyOf = r => `${String(r.method).toUpperCase()} ${r.path}`;
+  const answers = Object.fromEntries(f.effectiveRoutes.map(r => [keyOf(r), r]));
+  const endpointKeys = [...f.paths, ...Object.keys(answers).filter(k => !f.paths.includes(k))];
+  const live = f.mocking && data.mockingEnabled;
+  const endpoints = endpointKeys.map(k => {
+    const r = answers[k];
+    const open = (f.id + '|' + k) in endpointOpen ? endpointOpen[f.id + '|' + k] : endpointKeys.length === 1;
+    const mocked = Boolean(r) && live;
+    const extra = r && (r.status && r.status !== 200 || r.delayMs) ? ` <span class="tag">${esc([r.status && r.status !== 200 ? r.status : '', r.delayMs ? r.delayMs + ' ms' : ''].filter(Boolean).join(' · '))}</span>` : '';
+    const body = r
+      ? `${live ? '' : `<div class="note" style="margin:0 0 8px">${esc(t('endpoint.pending'))}</div>`}<pre>${esc(JSON.stringify(r.body === undefined ? {} : r.body, null, 2))}</pre>`
+      : `<div class="note" style="margin:0 0 10px">${esc(t('endpoint.noMock'))}</div>`;
+    return `<details class="ep" data-pk="${esc(f.id + '|' + k)}" ${open ? 'open' : ''}><summary><span class="eph"><code>${esc(k)}</code><span class="tag ${mocked ? 'on' : ''}">${esc(t(mocked ? 'endpoint.mocked' : 'endpoint.real'))}</span>${extra}</span></summary>${body}</details>`;
   }).join('');
 
   const selectorsPanel = `
@@ -310,8 +324,7 @@ function render() {
       <select id="${esc(fl.key)}" data-key="${esc(fl.key)}" ${fl.unavailable ? 'disabled' : ''}>${fl.options.map(v => `<option value="${v}" ${String(f.state[fl.key]) === String(v) ? 'selected' : ''}>${esc(tv(fl.key, v))}</option>`).join('')}</select>
       ${fl.unavailable ? `<div class="hint err">${esc(t('field.unavailable', { mod: modText(data.mod) }))}</div>` : ''}
       ${fl.hint ? `<div class="hint">${esc(tr('hint.' + fl.key, fl.hint))}</div>` : ''}</div>`).join('')}
-    </div>`).join('')}
-    ${previews ? `<h3>${esc(t('preview.title'))}</h3>${previews}` : ''}`;
+    </div>`).join('')}`;
 
   const jsonText = jsonDrafts[f.id] ?? JSON.stringify(f.overrideRoutes || f.effectiveRoutes, null, 2);
   const jsonPanel = `
@@ -332,18 +345,19 @@ function render() {
     <div class="pagehead"><div><h1>${esc(f.name)}</h1><p class="desc">${esc(f.description)}</p></div>
       <div class="mock"><span>${esc(t('feature.mocking'))}</span>
         <button class="switch" id="mockSwitch" role="switch" aria-checked="${f.mocking}" aria-label="${esc(t('feature.mocking'))}" title="${esc(t(f.mocking ? 'feature.mockingOn' : 'feature.mockingOff'))}"><span class="knob"></span></button></div></div>
+    ${data.mockingEnabled ? '' : `<div class="note err" style="margin:0 0 10px">${esc(t('banner.paused'))}</div>`}
     ${f.mocking ? '' : `<div class="note err" style="margin:0 0 10px">${esc(t('feature.realNote'))}</div>`}
     <div id="flash">${esc(flashMsg)}</div>
     <div class="card"><div class="cardhead"><h2>${esc(t('scenarios.title'))}</h2>${icons}</div>
       <div class="row">${scenarios}</div>
       <div class="note">${info.join('<br>')}</div><div class="note err">${errors}</div>${form}</div>
     ${editor}
-    <div class="card"><h2>${esc(t('routes.title'))}</h2>
-      <ul class="paths">${f.paths.map(p => `<li><code>${esc(p)}</code></li>`).join('')}</ul>
-      <div class="note">${esc(t('routes.note'))}</div></div>`;
+    <div class="card"><h2>${esc(t('endpoints.title'))}</h2>
+      ${endpoints}
+      <div class="note">${esc(t('endpoints.note'))}</div></div>`;
 
   document.getElementById('mockSwitch').onclick = async () => { await api('POST', `/api/features/${f.id}/mocking`, { enabled: !f.mocking }); await load(); };
-  document.querySelectorAll('details[data-pk]').forEach(d => d.ontoggle = () => { previewOpen[d.dataset.pk] = d.open; });
+  document.querySelectorAll('details[data-pk]').forEach(d => d.ontoggle = () => { endpointOpen[d.dataset.pk] = d.open; });
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tabs[f.id] = b.dataset.tab; render(); });
   const jed = document.getElementById('jsonEditor');
   if (jed) {
@@ -402,29 +416,19 @@ async function saveDraft(f) {
 async function load(msg) {
   if (msg) { for (const k of Object.keys(jsonDrafts)) delete jsonDrafts[k]; for (const k of Object.keys(jsonErrors)) delete jsonErrors[k]; } // a change made elsewhere makes typed JSON stale
   data = await api('GET', '/api/state');
+  paintMaster();
   try { document.getElementById('targetInfo').textContent = t('header.backend', { host: new URL(data.target).host }); } catch (e) {}
   flashMsg = msg || '';
   render();
   if (msg) setTimeout(() => { flashMsg = ''; const el = document.getElementById('flash'); if (el) el.textContent = ''; }, 2500);
 }
 
-async function loadCharles() {
-  const btn = document.getElementById('charlesBtn'), info = document.getElementById('charlesInfo');
-  const c = await api('GET', '/api/charles');
-  if (!c.available) {
-    btn.disabled = true; btn.className = ''; btn.textContent = t('charles.unavailable');
-    info.className = 'note err'; info.textContent = c.error; return;
-  }
-  btn.disabled = false;
-  btn.className = c.mapRemote ? 'active' : '';
-  btn.textContent = t(c.mapRemote ? 'charles.on' : 'charles.off');
-  btn.title = t(c.mapRemote ? 'charles.onTitle' : 'charles.offTitle');
-  info.className = 'note'; info.textContent = c.mapRemote ? '' : t('charles.offNote');
-  btn.onclick = async () => {
-    btn.disabled = true;
-    const r = await api('POST', '/api/charles/map-remote', { enabled: !c.mapRemote });
-    if (r.error) { info.className = 'note err'; info.textContent = r.error; btn.disabled = false; } else loadCharles();
-  };
+function paintMaster() {
+  const sw = document.getElementById('masterSwitch');
+  document.getElementById('masterLabel').textContent = t('header.allMocks');
+  sw.setAttribute('aria-checked', String(data.mockingEnabled));
+  sw.title = t(data.mockingEnabled ? 'header.allMocksOn' : 'header.allMocksOff');
+  sw.setAttribute('aria-label', t('header.allMocks'));
 }
 
 // Light/dark theme: with no saved choice the system theme is used
@@ -449,12 +453,11 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintTheme
 
 document.getElementById('resetBtn').textContent = t('header.resetAll');
 document.getElementById('resetBtn').title = t('header.resetAllTitle');
-document.getElementById('charlesBtn').textContent = t('charles.checking');
+document.getElementById('masterSwitch').onclick = async () => { await api('POST', '/api/mocking', { enabled: !data.mockingEnabled }); await load(); };
 document.getElementById('resetBtn').onclick = async () => { await api('POST', '/api/reset'); load(t('flash.resetAll')); };
 window.addEventListener('hashchange', render);
 paintThemeBtn();
 load();
-loadCharles();
 </script>
 </body>
 </html>

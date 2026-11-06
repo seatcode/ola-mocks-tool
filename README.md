@@ -6,31 +6,33 @@ Servidor local para mockear las respuestas del backend de OLA (apps MyCupra y My
 
 ```
 npm install      # solo la primera vez
-node app.js
+npm start        # equivale a: node --use-system-ca app.js
 ```
 
-Abre http://localhost:3000. A la izquierda están las **features** (Global, RVS, VHR, Driving Data), cada una con su escenario activo; puedes tener un escenario distinto en cada una a la vez. Arriba están los controles globales (interruptor de Map Remote y "Restablecer todo").
+Usa `npm start` y no `node app.js`: el flag `--use-system-ca` (hace falta Node 22.15 o superior) hace que Node confíe en los certificados del sistema. Con la inspección TLS de la empresa (Zscaler), el certificado del backend real está firmado por una CA corporativa que Node no conoce por defecto, y sin el flag las llamadas no mockeadas fallan con `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`. Al arrancar, el servidor avisa si no confía en el certificado del backend.
+
+Abre http://localhost:3000. A la izquierda están las **features** (Global, RVS, VHR, Driving Data), cada una con su escenario activo; puedes tener un escenario distinto en cada una a la vez. Arriba están los controles globales (interruptor general *All mocks*, "Restablecer todo" y el tema claro/oscuro).
 
 ## Charles: una sola regla
 
 Una única regla en `Tools > Map Remote` manda **todo** el tráfico de la API a este servidor, y es el servidor quien decide qué se mockea y qué va al backend real:
 
-- Origen (*Map From*): protocolo `https`, host `ola.prod.code.seat.cloud.vwgroup.com`, puerto `443`, y deja el path y la query vacíos (casa con todo).
+- Origen (*Map From*): protocolo `https`, host `ola.prod.code.seat.cloud.vwgroup.com`, puerto `443`, path `/v*` y la query vacía. **El path no puede ser vacío ni `/*`**: Charles trata la petición `CONNECT` que abre el túnel HTTPS como si tuviera path `/`, así que esas reglas también la casan, la redirigen al puerto 3000 y deja de funcionar todo (Charles muestra `SSL: Unsupported or unrecognized SSL message`). Con `/v*` solo casan las rutas de la API (`/v1`, `/v2`, `/v3`…); una ruta que no empiece por `/v` iría directa al backend real.
 - Destino (*Map To*): protocolo `http`, host `localhost`, puerto `3000`, y deja el path vacío (conserva el original).
 - El host debe estar en `Proxy > SSL Proxying Settings`.
 - Borra las reglas antiguas por ruta para que no se pisen.
 
-Lo que no esté mockeado se reenvía tal cual (método, ruta, query, cabeceras como `Authorization`, y cuerpo) a `https://ola.prod.code.seat.cloud.vwgroup.com`. Para apuntar a otro entorno: `TARGET_HOST=https://otro.host node app.js`. Si el backend no responde, el servidor devuelve un 502.
+Lo que no esté mockeado se reenvía tal cual (método, ruta, query, cabeceras como `Authorization`, y cuerpo) a `https://ola.prod.code.seat.cloud.vwgroup.com`. Para apuntar a otro entorno: `TARGET_HOST=https://otro.host npm start`. Si el backend no responde, el servidor devuelve un 502.
 
 ### Mocking por feature
 
-Cada feature tiene un interruptor **Mocking** (arriba a la derecha de su panel). Apagado, sus peticiones van al backend real; encendido, las contestan los mocks. Empiezan todas apagadas, y se encienden solas al aplicar un escenario, cambiar un selector o aplicar un JSON. Apagarlo no borra el escenario ni el estado: al volver a encenderlo sigue todo como estaba. *Restablecer todo* (y *Quitar escenario*) apagan el mock.
+Cada feature tiene un interruptor **Mocking** (arriba a la derecha de su panel). Encendido, los mocks contestan sus peticiones; apagado, sus peticiones van al backend real. Empiezan todas **encendidas**: una feature sin escenario contesta con sus valores por defecto (o, si no tiene selectores, no tiene nada que contestar y todo pasa al backend real). Apagarlo no borra el escenario ni el estado: al volver a encenderlo sigue todo como estaba. Aplicar un escenario o cambiar un selector no vuelve a encender un mock que apagaste; solo lo cambia el interruptor y *Restablecer todo* (que además quita los escenarios).
 
-### Interruptor de Map Remote
+### Interruptor general
 
-El botón de arriba activa o desactiva Map Remote en Charles (con él desactivado, las apps hablan con el backend real). Usa la Web Interface de Charles, que debe estar activada (`Proxy > Web Interface Settings`). Ojo: activa o desactiva la herramienta Map Remote entera, no solo tus reglas.
+El interruptor **All mocks** de la cabecera pausa todos los mocks a la vez: mientras está apagado, todo va al backend real. No toca el estado de las features (cada una conserva su escenario, selectores y su interruptor *Mocking*), así que al volver a encenderlo vuelve tu configuración. *Restablecer todo* lo deja encendido.
 
-Por defecto habla con Charles en `127.0.0.1:8888`. Con la regla única, este interruptor sigue siendo el "apagado total": con Map Remote desactivado las apps ni pasan por este servidor. Si el tuyo usa otro puerto: `CHARLES_PORT=8889 node app.js`. Para cambiar el puerto del servidor: `PORT=3100 node app.js`.
+Para saltarte este servidor por completo (por ejemplo, si no está arrancado), desactiva Map Remote desde el menú `Tools` de Charles. Para cambiar el puerto del servidor: `PORT=3100 npm start`.
 
 ## Escenarios
 
@@ -70,8 +72,10 @@ La feature **Global** reúne ajustes que afectan a todo el vehículo:
 
 La tarjeta *Response* de cada feature con selectores (RVS) tiene dos pestañas:
 
-- **Selectors:** formulario con los campos del vehículo; debajo se ve la respuesta que se enviará.
+- **Selectors:** formulario con los campos del vehículo.
 - **JSON:** la respuesta como JSON editable (un array de rutas, con el mismo formato que `routes` de un escenario). *Apply JSON* la aplica tal cual. Las features sin selectores (VHR, Driving Data) solo tienen el editor JSON.
+
+Debajo, la tarjeta **Endpoints** lista los endpoints de la feature, cada uno desplegable con la respuesta que se enviará y una etiqueta *Mocked* o *Real backend* según vaya al mock o al backend real. Si una feature solo tiene un endpoint, arranca desplegado.
 
 Un JSON aplicado manda sobre los selectores y sobre las respuestas fijas del escenario hasta que cambies un selector, apliques otro escenario o pulses *Discard custom JSON*. Ojo: el JSON aplicado es literal, así que campos como `updatedAt` quedan con el valor que tengan en el texto. Si guardas un escenario nuevo con un JSON aplicado, ese JSON se guarda en sus `routes`.
 
@@ -102,10 +106,9 @@ Si quiere selectores en la web, define `fields` (ver `features/rvs.js`) y `route
 - `GET /api/state`: todas las features con su escenario activo, estado, escenarios disponibles y errores.
 - `POST /api/features/{feature}/scenario/{nombre}`: aplica un escenario (nombre del fichero sin `.json`).
 - `POST /api/features/{feature}/scenarios` con `{"name":"…","description":"…","state":{…},"routes":[…]}`: crea el fichero del escenario y lo aplica.
-- `PUT /api/features/{feature}/state` con `{"lights":"on"}`: cambia campos sueltos (y enciende el mock de la feature).
+- `PUT /api/features/{feature}/state` con `{"lights":"on"}`: cambia campos sueltos .
 - `PUT /api/features/{feature}/routes` con `{"routes":[…]}`: aplica un JSON escrito a mano (el editor JSON de la web). `DELETE` en la misma ruta lo descarta.
 - `POST /api/features/{feature}/mocking` con `{"enabled":false}`: enciende o apaga el mock de esa feature (apagado = backend real).
-- `POST /api/features/{feature}/reset`: quita el escenario de esa feature y apaga su mock.
+- `POST /api/features/{feature}/reset`: quita el escenario de esa feature y la deja con el mock encendido.
 - `POST /api/reset`: restablece todas las features.
-- `GET /api/charles`: estado de Map Remote en Charles.
-- `POST /api/charles/map-remote` con `{"enabled":false}`: activa o desactiva Map Remote.
+- `POST /api/mocking` con `{"enabled":false}`: pausa o reanuda todos los mocks (interruptor general).

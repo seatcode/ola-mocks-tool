@@ -1,6 +1,6 @@
 const express = require('express');
 const fs = require('fs');
-const http = require('http');
+const tls = require('tls');
 const proxy = require('express-http-proxy');
 const path = require('path');
 const features = require('./features');
@@ -21,13 +21,18 @@ const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 // ---------------------------------------------------------------------------
 // In-memory state: one active scenario (and its state) per feature.
 // override = routes typed by hand in the JSON editor; while set, they replace the scenario's fixed routes.
-// mocking = false: the feature's requests go to the real backend (the scenario / state are kept for when it is switched on).
+// mocking = true by default. false: the feature's requests go to the real backend (the scenario / state are kept for when it is switched on).
+// Only the feature's switch (and a reset) changes it: applying a scenario or editing never switches it back on.
 // ---------------------------------------------------------------------------
 const runtime = {};
 function resetFeature(f) {
-    runtime[f.id] = { scenario: null, modified: false, state: { ...f.defaultState }, override: null, mocking: false };
+    runtime[f.id] = { scenario: null, modified: false, state: { ...f.defaultState }, override: null, mocking: true };
 }
 features.forEach(resetFeature);
+
+// Master switch: false = every request goes to the real backend, whatever each feature has.
+// The features keep their scenario / state / mocking flag, so switching it back on restores everything.
+let mockingEnabled = true;
 
 // ---------------------------------------------------------------------------
 // Scenarios: scenarios/<feature>/<name>.json (files starting with "_" are ignored)
@@ -162,12 +167,11 @@ function describeFeature(f) {
         effectiveRoutes: effectiveRoutes(f),
         // Routes typed by hand in the JSON editor (null when the selectors / scenario are in control)
         overrideRoutes: rt.override,
-        previews: effectiveRoutes(f).map((r) => ({ route: `${String(r.method).toUpperCase()} ${r.path}`, body: r.body })),
     };
 }
 
 app.get('/api/state', (_req, res) => {
-    res.json({ target: TARGET_HOST, mod: currentMod(), mods: MODS, features: features.map(describeFeature) });
+    res.json({ mockingEnabled, target: TARGET_HOST, mod: currentMod(), mods: MODS, features: features.map(describeFeature) });
 });
 
 // Change one or more fields: PUT /api/features/rvs/state {"lights":"on","doorFrontLeft":"open"}
@@ -183,7 +187,6 @@ app.put('/api/features/:id/state', (req, res) => {
     const rt = runtime[f.id];
     rt.state = { ...rt.state, ...changes };
     rt.override = null; // touching a selector gives control back to the selectors
-    rt.mocking = true;
     recomputeModified(f);
     res.json({ feature: f.id, scenario: rt.scenario, modified: rt.modified, state: rt.state });
 });
@@ -197,7 +200,6 @@ app.put('/api/features/:id/routes', (req, res) => {
     const errors = validateRoutes(routes);
     if (errors.length) return res.status(400).json({ error: errors.join('; ') });
     runtime[f.id].override = routes;
-    runtime[f.id].mocking = true;
     recomputeModified(f);
     console.log(`[routes] ${f.id}: custom JSON applied (${routes.length} route${routes.length === 1 ? '' : 's'})`);
     res.json({ feature: f.id, scenario: runtime[f.id].scenario, modified: runtime[f.id].modified });
@@ -213,7 +215,7 @@ app.delete('/api/features/:id/routes', (req, res) => {
 });
 
 function applyScenario(f, name, scenario) {
-    runtime[f.id] = { scenario: name, modified: false, state: { ...f.defaultState, ...(scenario.state || {}) }, override: null, mocking: true };
+    runtime[f.id] = { scenario: name, modified: false, state: { ...f.defaultState, ...(scenario.state || {}) }, override: null, mocking: runtime[f.id].mocking };
     console.log(`[scenario] ${f.id}: ${name}`);
 }
 
@@ -281,65 +283,20 @@ app.post('/api/features/:id/reset', (req, res) => {
     res.json({ feature: f.id, scenario: null, modified: false, state: runtime[f.id].state });
 });
 
-// Reset every feature
+// Master switch: POST /api/mocking {"enabled": false} sends everything to the real backend
+app.post('/api/mocking', (req, res) => {
+    if (typeof (req.body || {}).enabled !== 'boolean') return res.status(400).json({ error: 'Missing "enabled": true|false' });
+    mockingEnabled = req.body.enabled;
+    console.log(`[mocking] all mocks ${mockingEnabled ? 'on' : 'paused (everything goes to the real backend)'}`);
+    res.json({ mockingEnabled });
+});
+
+// Reset every feature (and switch the master switch back on)
 app.post('/api/reset', (_req, res) => {
     features.forEach(resetFeature);
+    mockingEnabled = true;
     console.log('[scenario] all features reset');
     res.json({ ok: true });
-});
-
-// ---------------------------------------------------------------------------
-// Charles control (Web Interface: http://control.charles/)
-// Enables/disables the whole Map Remote tool. It has to talk to Charles through
-// its own proxy, which is why it connects to CHARLES_HOST:CHARLES_PORT.
-// ---------------------------------------------------------------------------
-const CHARLES_HOST = process.env.CHARLES_HOST || '127.0.0.1';
-const CHARLES_PORT = Number(process.env.CHARLES_PORT || 8888);
-
-function charlesRequest(urlPath) {
-    return new Promise((resolve, reject) => {
-        const req = http.request(
-            { host: CHARLES_HOST, port: CHARLES_PORT, method: 'GET', path: `http://control.charles${urlPath}`, headers: { Host: 'control.charles' }, timeout: 3000 },
-            (res) => {
-                let body = '';
-                res.on('data', (c) => (body += c));
-                res.on('end', () => resolve({ status: res.statusCode, body }));
-            },
-        );
-        req.on('timeout', () => req.destroy(new Error('Charles is not responding (timeout)')));
-        req.on('error', reject);
-        req.end();
-    });
-}
-
-async function getMapRemote() {
-    const { body } = await charlesRequest('/tools/map-remote/');
-    const match = body.match(/Status:\s*(Enabled|Disabled)/i);
-    if (!match) throw new Error("Could not read the Map Remote status (is Charles' Web Interface enabled?)");
-    return match[1].toLowerCase() === 'enabled';
-}
-
-const charlesError = (e) => `Could not talk to Charles at ${CHARLES_HOST}:${CHARLES_PORT}: ${e.message}`;
-
-app.get('/api/charles', async (_req, res) => {
-    try {
-        res.json({ available: true, mapRemote: await getMapRemote() });
-    } catch (e) {
-        res.json({ available: false, error: charlesError(e) });
-    }
-});
-
-// POST /api/charles/map-remote {"enabled": true|false}
-app.post('/api/charles/map-remote', async (req, res) => {
-    if (typeof (req.body || {}).enabled !== 'boolean') return res.status(400).json({ error: 'Missing "enabled": true|false' });
-    try {
-        await charlesRequest(`/tools/map-remote/${req.body.enabled ? 'enable' : 'disable'}`);
-        const mapRemote = await getMapRemote();
-        console.log(`[charles] Map Remote ${mapRemote ? 'enabled' : 'disabled'}`);
-        res.json({ available: true, mapRemote });
-    } catch (e) {
-        res.status(502).json({ available: false, error: charlesError(e) });
-    }
 });
 
 // ---------------------------------------------------------------------------
@@ -348,6 +305,7 @@ app.post('/api/charles/map-remote', async (req, res) => {
 
 // 1) Fixed responses from the active scenarios (any feature, method and path)
 app.use((req, res, next) => {
+    if (!mockingEnabled) return next();
     for (const f of features) {
         if (!runtime[f.id].mocking) continue;
         const route = fixedRoutesOf(f).find((r) => matches(r, req));
@@ -364,6 +322,7 @@ app.use((req, res, next) => {
 
 // 2) Responses generated from each feature's state (selectors)
 app.use((req, res, next) => {
+    if (!mockingEnabled) return next();
     for (const f of features) {
         if (!runtime[f.id].mocking) continue;
         const route = (f.routes || []).find((r) => matches(r, req));
@@ -376,6 +335,7 @@ app.use((req, res, next) => {
 });
 
 // 3) Everything else goes to the real backend, untouched
+const CERT_ERRORS = /CERT|SELF_SIGNED|ISSUER/;
 app.use(
     (req, res, next) => {
         res.on('finish', () => console.log(`[real] ${req.method} ${req.originalUrl} -> ${res.statusCode}`));
@@ -386,14 +346,33 @@ app.use(
         timeout: 30000,
         proxyErrorHandler: (err, res) => {
             console.warn(`[real] could not reach ${TARGET_HOST}: ${err.code || err.message}`);
-            res.status(502).json({ error: `Could not reach the real backend (${TARGET_HOST}): ${err.code || err.message}` });
+            const hint = CERT_ERRORS.test(err.code || '') ? ' Node does not trust the certificate of that host (corporate TLS inspection?). Start the server with "npm start" so it uses the system certificates.' : '';
+            res.status(502).json({ error: `Could not reach the real backend (${TARGET_HOST}): ${err.code || err.message}.${hint}` });
         },
     }),
 );
 
+// Opens (and closes) a TLS connection to the real backend to warn early about certificate problems.
+// It sends no request.
+function checkBackendTls() {
+    let u;
+    try { u = new URL(TARGET_HOST); } catch { return; }
+    if (u.protocol !== 'https:') return;
+    const sock = tls.connect({ host: u.hostname, port: Number(u.port) || 443, servername: u.hostname, timeout: 8000 }, () => sock.end());
+    sock.on('error', (e) => {
+        if (CERT_ERRORS.test(e.code || '')) {
+            console.warn(`  ⚠ Node does not trust the certificate of ${u.host} (${e.code}). Corporate TLS inspection? Start with "npm start" (it uses the system certificates) instead of "node app.js".`);
+        } else {
+            console.warn(`  ⚠ Could not reach ${u.host} to check its certificate (${e.code || e.message}); VPN or network?`);
+        }
+    });
+    sock.on('timeout', () => sock.destroy());
+}
+
 app.listen(port, () => {
     console.log(`ola-mocks listening on http://localhost:${port}`);
     console.log(`  Real backend (anything not mocked): ${TARGET_HOST}`);
+    checkBackendTls();
     for (const f of features) {
         const { scenarios, errors } = loadScenarios(f);
         console.log(`  ${f.name}: ${Object.keys(scenarios).join(', ') || 'no scenarios'}`);
