@@ -34,6 +34,13 @@
   .dot { width:9px; height:9px; border-radius:50%; background:var(--line); flex-shrink:0; }
   .dot.on { background:var(--ok); } .dot.mod { background:var(--warn); }
 
+  .pagehead { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .mock { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); padding-top:4px; }
+  .switch { position:relative; width:38px; height:22px; padding:0; border:0; border-radius:11px; background:var(--line); cursor:pointer; flex-shrink:0; }
+  .switch .knob { position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:var(--muted); transition:transform .15s, background .15s; }
+  .switch[aria-checked="true"] { background:var(--accent); }
+  .switch[aria-checked="true"] .knob { transform:translateX(16px); background:var(--on-accent); }
+  .switch:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   h1 { font-size:20px; margin:0 0 4px; }
   .desc { color:var(--muted); margin:0 0 16px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
@@ -47,6 +54,10 @@
   button { padding:8px 14px; font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
   button.active, button.primary { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
   button:disabled { opacity:.6; cursor:default; }
+  button.dim { opacity:.55; }
+  .checks { display:flex; gap:14px; flex-wrap:wrap; }
+  .checks label { display:flex; align-items:center; gap:6px; margin:0; color:var(--text); font-size:14px; }
+  .hint { font-size:12px; color:var(--muted); margin-top:4px; }
   /* Icon without button look (uses --muted/--text, valid in light and dark) */
   .icon-btn { display:inline-flex; padding:6px; background:none; border:0; border-radius:6px; color:var(--muted); }
   .icon-btn:hover { color:var(--text); }
@@ -59,6 +70,9 @@
   .tab:hover { color:var(--text); }
   .tab[aria-selected="true"] { color:var(--text); border-bottom-color:var(--accent); font-weight:600; }
   .tab:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+  details.ep { border-top:1px solid var(--line); padding:8px 0 2px; }
+  details.ep:last-child { border-bottom:1px solid var(--line); margin-bottom:4px; }
+  details.ep > summary { color:var(--text); margin-bottom:8px; }
   h3 { font-size:13px; margin:18px 0 10px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
   h3:first-child { margin-top:0; }
   textarea.json { min-height:320px; }
@@ -75,6 +89,7 @@
 <body>
 <header class="top">
   <strong>OLA Mocks</strong>
+  <span id="targetInfo" class="note" style="margin:0"></span>
   <div class="spacer"></div>
   <span id="charlesInfo" class="note" style="margin:0"></span>
   <button id="charlesBtn" disabled></button>
@@ -96,8 +111,14 @@
 // ---------------------------------------------------------------------------
 const MESSAGES = {
   en: {
+    'header.backend': 'Real backend: {host}',
+    'feature.mocking': 'Mocking',
+    'feature.mockingOn': 'Answered by the mocks. Click to send this feature to the real backend.',
+    'feature.mockingOff': 'Going to the real backend. Click to mock it.',
+    'feature.realNote': 'Mocking is off: the requests of this feature go to the real backend. Applying a scenario, changing a selector or applying JSON switches it on.',
+    'badge.real': 'Real backend',
     'header.resetAll': 'Reset all',
-    'header.resetAllTitle': 'Removes every scenario and goes back to the default values',
+    'header.resetAllTitle': 'Removes every scenario, switches every mock off and goes back to the default values',
     'theme.toLight': 'Switch to light mode',
     'theme.toDark': 'Switch to dark mode',
     'charles.checking': 'Charles…',
@@ -120,7 +141,7 @@ const MESSAGES = {
     'info.fixed': 'Fixed responses from the scenario:',
     'error.file': 'Error in {file}: {msg}',
     'routes.title': 'Routes of this feature',
-    'routes.note': 'Each route needs its own Map Remote rule in Charles pointing to this server.',
+    'routes.note': 'While the feature is mocked, these routes are answered here; everything else goes to the real backend.',
     'preview.title': 'Response that will be sent',
     'editor.title': 'Response',
     'tab.selectors': 'Selectors',
@@ -157,6 +178,17 @@ const MESSAGES = {
     'value.off': 'Off',
     'value.unknown': 'Unknown',
     'value.null': 'Not sent',
+    'value.mod.null': 'Not set',
+    'value.mod3': 'MOD3',
+    'value.mod4': 'MOD4',
+    'value.mod5': 'MOD5',
+    'value.online': 'Online',
+    'value.offline': 'Offline',
+    'value.no-coverage': 'No coverage',
+    'field.unavailable': 'Not sent on {mod}',
+    'info.modMismatch': 'This scenario is meant for {list}, but the selected MOD is {mod}.',
+    'scenarios.meantFor': 'Meant for: {list}',
+    'form.mods': 'Valid for MOD (none selected = all)',
     'value.true': 'Locked',
     'value.false': 'Unlocked',
   },
@@ -166,6 +198,10 @@ const t = (key, vars = {}) =>
   String((MESSAGES[LANG] && MESSAGES[LANG][key]) ?? MESSAGES.en[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? ''));
 // Like t(), but falls back to the text that comes with the data when there is no translation
 const tr = (key, fallback) => (MESSAGES[LANG] && MESSAGES[LANG][key]) ?? fallback;
+
+// Label of a field value: field-specific text first (e.g. value.mod.null), then the generic one
+const tv = (key, v) => tr('value.' + key + '.' + v, tr('value.' + v, String(v)));
+const modText = m => tr('value.' + m, String(m).toUpperCase());
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const SVG = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -180,6 +216,7 @@ let draft = null; // new-scenario form: { id, name, description, routes, error }
 const tabs = {};        // selected editor tab per feature: 'selectors' | 'json'
 const jsonDrafts = {};  // JSON editor text typed but not applied yet, per feature
 const jsonErrors = {};  // last error shown under the JSON editor, per feature
+const previewOpen = {}; // open/closed state of each endpoint block in the response preview
 
 async function api(method, url, body) {
   const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined });
@@ -192,6 +229,7 @@ function currentId() {
 }
 
 function badge(f) {
+  if (!f.mocking) return { dot: '', text: t('badge.real') };
   const mod = f.modified ? t('badge.modified') : '';
   if (f.scenario) {
     const name = (f.scenarios.find(s => s.key === f.scenario) || {}).name || f.scenario;
@@ -218,11 +256,14 @@ function render() {
     const sc = f.scenarios.find(s => s.key === f.scenario);
     if (sc && sc.description) info.push(esc(sc.description));
     if (f.modified) info.push('<strong>' + esc(t('info.modified', { name: f.scenario })) + '</strong>');
+    if (sc && mismatch(sc)) info.push('<span class="err">' + esc(t('info.modMismatch', { list: modList(sc), mod: modText(data.mod) })) + '</span>');
   } else info.push(esc(t(f.fields.length ? 'info.noneFields' : 'info.noneRoutes')));
   if (f.fixedRoutes.length) info.push(esc(t('info.fixed')) + ' ' + f.fixedRoutes.map(r => '<code>' + esc(r) + '</code>').join(', '));
 
+  const mismatch = s => Boolean(s.mods && data.mod && !s.mods.includes(data.mod));
+  const modList = s => s.mods.map(modText).join(', ');
   const scenarios = f.scenarios.length
-    ? f.scenarios.map(s => `<button data-sc="${esc(s.key)}" class="${f.scenario === s.key ? 'active' : ''}" title="${esc(s.description)}">${esc(s.name)}</button>`).join('')
+    ? f.scenarios.map(s => `<button data-sc="${esc(s.key)}" class="${f.scenario === s.key ? 'active' : ''} ${mismatch(s) ? 'dim' : ''}" title="${esc([s.description, s.mods ? t('scenarios.meantFor', { list: modList(s) }) : ''].filter(Boolean).join(' — '))}">${esc(s.name)}</button>`).join('')
     : `<span class="note" style="margin:0">${esc(t('scenarios.empty', { id: f.id }))}</span>`;
   const errors = Object.entries(f.errors).map(([k, e]) => esc(t('error.file', { file: f.id + '/' + k + '.json', msg: e.join('; ') }))).join('<br>');
 
@@ -241,6 +282,7 @@ function render() {
       <div><label for="dDesc">${esc(t('form.description'))}</label><input type="text" id="dDesc" value="${esc(draft.description)}"></div>
       ${f.fields.length ? `<div class="note" style="margin:0">${esc(t('form.stateNote'))}</div>` : ''}
       ${f.overrideRoutes ? `<div class="note" style="margin:0">${esc(t('form.overrideNote'))}</div>` : ''}
+      <div><label>${esc(t('form.mods'))}</label><div class="checks">${data.mods.map(m => `<label><input type="checkbox" data-mod="${esc(m)}" ${draft.mods.includes(m) ? 'checked' : ''}> ${esc(modText(m))}</label>`).join('')}</div></div>
       <details ${(!f.fields.length || draft.routes) ? 'open' : ''}><summary>${esc(t(f.fields.length ? 'form.routesOptional' : 'form.routes'))}</summary>
         <textarea id="dRoutes" spellcheck="false" placeholder="${esc(placeholder)}">${esc(draft.routes)}</textarea>
         <div class="note" style="margin-top:6px">${esc(t('form.routesHint'))}</div></details>
@@ -254,13 +296,20 @@ function render() {
   const tab = hasSel ? (tabs[f.id] || 'selectors') : 'json';
   const groups = [];
   for (const fl of f.fields) { let g = groups.find(x => x.name === fl.group); if (!g) groups.push(g = { name: fl.group, fields: [] }); g.fields.push(fl); }
-  const previews = f.previews.map(p => `<div class="route">${esc(p.route)}</div><pre>${esc(JSON.stringify(p.body, null, 2))}</pre>`).join('');
+  // One collapsible block per endpoint. With a single endpoint it starts open; the choice is remembered across re-renders.
+  const previews = f.previews.map(p => {
+    const k = f.id + '|' + p.route;
+    const open = k in previewOpen ? previewOpen[k] : f.previews.length === 1;
+    return `<details class="ep" data-pk="${esc(k)}" ${open ? 'open' : ''}><summary><code>${esc(p.route)}</code></summary><pre>${esc(JSON.stringify(p.body, null, 2))}</pre></details>`;
+  }).join('');
 
   const selectorsPanel = `
     ${f.overrideRoutes ? `<div class="note err" style="margin:0 0 12px">${esc(t('selectors.customNote'))}</div>` : ''}
     ${groups.map(g => `<h3>${esc(tr('group.' + g.name, g.name))}</h3><div class="grid">${g.fields.map(fl => `
       <div><label for="${esc(fl.key)}">${esc(tr('field.' + fl.key, fl.label))}</label>
-      <select id="${esc(fl.key)}" data-key="${esc(fl.key)}">${fl.options.map(v => `<option value="${v}" ${String(f.state[fl.key]) === String(v) ? 'selected' : ''}>${esc(t('value.' + v))}</option>`).join('')}</select></div>`).join('')}
+      <select id="${esc(fl.key)}" data-key="${esc(fl.key)}" ${fl.unavailable ? 'disabled' : ''}>${fl.options.map(v => `<option value="${v}" ${String(f.state[fl.key]) === String(v) ? 'selected' : ''}>${esc(tv(fl.key, v))}</option>`).join('')}</select>
+      ${fl.unavailable ? `<div class="hint err">${esc(t('field.unavailable', { mod: modText(data.mod) }))}</div>` : ''}
+      ${fl.hint ? `<div class="hint">${esc(tr('hint.' + fl.key, fl.hint))}</div>` : ''}</div>`).join('')}
     </div>`).join('')}
     ${previews ? `<h3>${esc(t('preview.title'))}</h3>${previews}` : ''}`;
 
@@ -280,7 +329,10 @@ function render() {
     <div role="tabpanel">${tab === 'selectors' ? selectorsPanel : jsonPanel}</div></div>`;
 
   document.getElementById('main').innerHTML = `
-    <h1>${esc(f.name)}</h1><p class="desc">${esc(f.description)}</p>
+    <div class="pagehead"><div><h1>${esc(f.name)}</h1><p class="desc">${esc(f.description)}</p></div>
+      <div class="mock"><span>${esc(t('feature.mocking'))}</span>
+        <button class="switch" id="mockSwitch" role="switch" aria-checked="${f.mocking}" aria-label="${esc(t('feature.mocking'))}" title="${esc(t(f.mocking ? 'feature.mockingOn' : 'feature.mockingOff'))}"><span class="knob"></span></button></div></div>
+    ${f.mocking ? '' : `<div class="note err" style="margin:0 0 10px">${esc(t('feature.realNote'))}</div>`}
     <div id="flash">${esc(flashMsg)}</div>
     <div class="card"><div class="cardhead"><h2>${esc(t('scenarios.title'))}</h2>${icons}</div>
       <div class="row">${scenarios}</div>
@@ -290,6 +342,8 @@ function render() {
       <ul class="paths">${f.paths.map(p => `<li><code>${esc(p)}</code></li>`).join('')}</ul>
       <div class="note">${esc(t('routes.note'))}</div></div>`;
 
+  document.getElementById('mockSwitch').onclick = async () => { await api('POST', `/api/features/${f.id}/mocking`, { enabled: !f.mocking }); await load(); };
+  document.querySelectorAll('details[data-pk]').forEach(d => d.ontoggle = () => { previewOpen[d.dataset.pk] = d.open; });
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tabs[f.id] = b.dataset.tab; render(); });
   const jed = document.getElementById('jsonEditor');
   if (jed) {
@@ -300,11 +354,12 @@ function render() {
   }
   document.querySelectorAll('[data-sc]').forEach(b => b.onclick = async () => { const r = await api('POST', `/api/features/${f.id}/scenario/${b.dataset.sc}`); await load(r.error ? t('flash.error', { msg: r.error }) : t('flash.applied')); });
   const clr = document.getElementById('clearSc'); if (clr) clr.onclick = async () => { await api('POST', `/api/features/${f.id}/reset`); await load(t('flash.cleared')); };
-  document.getElementById('newSc').onclick = () => { draft = draft ? null : { id: f.id, name: '', description: '', routes: '', error: '' }; render(); const n = document.getElementById('dName'); if (n) n.focus(); };
+  document.getElementById('newSc').onclick = () => { draft = draft ? null : { id: f.id, name: '', description: '', routes: '', mods: [], error: '' }; render(); const n = document.getElementById('dName'); if (n) n.focus(); };
   if (draft) {
     document.getElementById('dName').oninput = e => { draft.name = e.target.value; };
     document.getElementById('dDesc').oninput = e => { draft.description = e.target.value; };
     document.getElementById('dRoutes').oninput = e => { draft.routes = e.target.value; };
+    document.querySelectorAll('[data-mod]').forEach(c => c.onchange = () => { draft.mods = [...document.querySelectorAll('[data-mod]:checked')].map(x => x.dataset.mod); });
     document.getElementById('dCancel').onclick = () => { draft = null; render(); };
     document.getElementById('dSave').onclick = () => saveDraft(f);
   }
@@ -333,6 +388,7 @@ async function saveDraft(f) {
   const body = { name };
   if (draft.description.trim()) body.description = draft.description.trim();
   if (f.fields.length) body.state = f.state; // save what is currently selected
+  if (draft.mods.length) body.mods = draft.mods;
   if (draft.routes.trim()) {
     try { body.routes = JSON.parse(draft.routes); }
     catch (e) { draft.error = t('form.routesInvalid', { msg: e.message }); return render(); }
@@ -346,6 +402,7 @@ async function saveDraft(f) {
 async function load(msg) {
   if (msg) { for (const k of Object.keys(jsonDrafts)) delete jsonDrafts[k]; for (const k of Object.keys(jsonErrors)) delete jsonErrors[k]; } // a change made elsewhere makes typed JSON stale
   data = await api('GET', '/api/state');
+  try { document.getElementById('targetInfo').textContent = t('header.backend', { host: new URL(data.target).host }); } catch (e) {}
   flashMsg = msg || '';
   render();
   if (msg) setTimeout(() => { flashMsg = ''; const el = document.getElementById('flash'); if (el) el.textContent = ''; }, 2500);

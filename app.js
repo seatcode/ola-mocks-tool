@@ -1,13 +1,18 @@
 const express = require('express');
 const fs = require('fs');
 const http = require('http');
+const proxy = require('express-http-proxy');
 const path = require('path');
 const features = require('./features');
+const MODS = require('./features/mods');
 
 const port = Number(process.env.PORT || 3000);
 const SCENARIOS_DIR = path.join(__dirname, 'scenarios');
+// Backend real al que se reenvía todo lo que no esté mockeado (cambia de entorno con TARGET_HOST)
+const TARGET_HOST = (process.env.TARGET_HOST || 'https://ola.prod.code.seat.cloud.vwgroup.com').replace(/\/+$/, '');
 const app = express();
-app.use(express.json());
+// El JSON solo se interpreta en la API de control: el resto del tráfico se reenvía tal cual, sin tocar el cuerpo
+app.use('/api', express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const FEATURES = Object.fromEntries(features.map((f) => [f.id, f]));
@@ -16,10 +21,11 @@ const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 // ---------------------------------------------------------------------------
 // In-memory state: one active scenario (and its state) per feature.
 // override = routes typed by hand in the JSON editor; while set, they replace the scenario's fixed routes.
+// mocking = false: the feature's requests go to the real backend (the scenario / state are kept for when it is switched on).
 // ---------------------------------------------------------------------------
 const runtime = {};
 function resetFeature(f) {
-    runtime[f.id] = { scenario: null, modified: false, state: { ...f.defaultState }, override: null };
+    runtime[f.id] = { scenario: null, modified: false, state: { ...f.defaultState }, override: null, mocking: false };
 }
 features.forEach(resetFeature);
 
@@ -36,6 +42,9 @@ function validateScenario(feature, sc) {
         else if (!allowed[key].includes(value)) errors.push(`state.${key}: invalid value (${JSON.stringify(value)})`);
     }
     if (sc.routes !== undefined) errors.push(...validateRoutes(sc.routes));
+    if (sc.mods !== undefined && !(Array.isArray(sc.mods) && sc.mods.every((m) => MODS.includes(m)))) {
+        errors.push(`mods must be an array with values from: ${MODS.join(', ')}`);
+    }
     return errors;
 }
 
@@ -93,6 +102,17 @@ function fixedRoutesOf(f) {
     return scenario && scenario.routes ? scenario.routes : [];
 }
 
+// MOD currently selected in the Global feature (null = the real one, not forced)
+const currentMod = () => (runtime.global ? runtime.global.state.mod : null);
+// A field marked with mods: [...] is not sent when a MOD outside that list is selected
+const isUnavailable = (fl) => Boolean(fl.mods && currentMod() && !fl.mods.includes(currentMod()));
+// The state used to build responses: unavailable fields are dropped (null = not sent)
+function stateFor(f) {
+    const s = { ...runtime[f.id].state };
+    for (const fl of f.fields) if (isUnavailable(fl) && fl.options.includes(null)) s[fl.key] = null;
+    return s;
+}
+
 // Everything this feature answers right now, in the order it is served: fixed routes first,
 // then the routes generated from the selectors that no fixed route replaces.
 function effectiveRoutes(f) {
@@ -100,7 +120,7 @@ function effectiveRoutes(f) {
     const fixed = fixedRoutesOf(f);
     const generated = (f.routes || [])
         .filter((g) => !fixed.some((r) => String(r.method).toUpperCase() === g.method && r.path === g.path))
-        .map((g) => ({ method: g.method, path: g.path, status: 200, body: g.build(rt.state, {}) }));
+        .map((g) => ({ method: g.method, path: g.path, status: 200, body: g.build(stateFor(f), {}) }));
     return [...fixed, ...generated];
 }
 
@@ -130,11 +150,12 @@ function describeFeature(f) {
         name: f.name,
         description: f.description,
         paths: f.paths,
-        fields: f.fields,
+        fields: f.fields.map((fl) => ({ ...fl, unavailable: isUnavailable(fl) })),
         scenario: rt.scenario,
+        mocking: rt.mocking,
         modified: rt.modified,
         state: rt.state,
-        scenarios: Object.entries(scenarios).map(([key, sc]) => ({ key, name: sc.name || key, description: sc.description || '' })),
+        scenarios: Object.entries(scenarios).map(([key, sc]) => ({ key, name: sc.name || key, description: sc.description || '', mods: sc.mods || null })),
         errors,
         fixedRoutes: fixedRoutesOf(f).map((r) => `${String(r.method).toUpperCase()} ${r.path}`),
         // What is answered right now, as editable route objects (the JSON editor shows this)
@@ -146,7 +167,7 @@ function describeFeature(f) {
 }
 
 app.get('/api/state', (_req, res) => {
-    res.json({ features: features.map(describeFeature) });
+    res.json({ target: TARGET_HOST, mod: currentMod(), mods: MODS, features: features.map(describeFeature) });
 });
 
 // Change one or more fields: PUT /api/features/rvs/state {"lights":"on","doorFrontLeft":"open"}
@@ -162,6 +183,7 @@ app.put('/api/features/:id/state', (req, res) => {
     const rt = runtime[f.id];
     rt.state = { ...rt.state, ...changes };
     rt.override = null; // touching a selector gives control back to the selectors
+    rt.mocking = true;
     recomputeModified(f);
     res.json({ feature: f.id, scenario: rt.scenario, modified: rt.modified, state: rt.state });
 });
@@ -175,6 +197,7 @@ app.put('/api/features/:id/routes', (req, res) => {
     const errors = validateRoutes(routes);
     if (errors.length) return res.status(400).json({ error: errors.join('; ') });
     runtime[f.id].override = routes;
+    runtime[f.id].mocking = true;
     recomputeModified(f);
     console.log(`[routes] ${f.id}: custom JSON applied (${routes.length} route${routes.length === 1 ? '' : 's'})`);
     res.json({ feature: f.id, scenario: runtime[f.id].scenario, modified: runtime[f.id].modified });
@@ -190,7 +213,7 @@ app.delete('/api/features/:id/routes', (req, res) => {
 });
 
 function applyScenario(f, name, scenario) {
-    runtime[f.id] = { scenario: name, modified: false, state: { ...f.defaultState, ...(scenario.state || {}) }, override: null };
+    runtime[f.id] = { scenario: name, modified: false, state: { ...f.defaultState, ...(scenario.state || {}) }, override: null, mocking: true };
     console.log(`[scenario] ${f.id}: ${name}`);
 }
 
@@ -220,6 +243,7 @@ app.post('/api/features/:id/scenarios', (req, res) => {
     if (typeof body.description === 'string' && body.description.trim()) sc.description = body.description.trim();
     if (body.state !== undefined) sc.state = body.state;
     if (body.routes !== undefined) sc.routes = body.routes;
+    if (Array.isArray(body.mods) && body.mods.length) sc.mods = body.mods;
     const errors = validateScenario(f, sc);
     if (errors.length) return res.status(400).json({ error: errors.join('; ') });
     if (!f.fields.length && !(sc.routes && sc.routes.length)) {
@@ -236,6 +260,17 @@ app.post('/api/features/:id/scenarios', (req, res) => {
     console.log(`[scenario] created ${f.id}/${key}.json`);
     applyScenario(f, key, sc);
     res.status(201).json({ feature: f.id, scenario: key, modified: false, state: runtime[f.id].state });
+});
+
+// Switch a feature's mocks on or off (off = its requests go to the real backend):
+//   POST /api/features/rvs/mocking {"enabled": false}
+app.post('/api/features/:id/mocking', (req, res) => {
+    const f = FEATURES[req.params.id];
+    if (!f) return res.status(404).json({ error: `Unknown feature: ${req.params.id}` });
+    if (typeof (req.body || {}).enabled !== 'boolean') return res.status(400).json({ error: 'Missing "enabled": true|false' });
+    runtime[f.id].mocking = req.body.enabled;
+    console.log(`[mocking] ${f.id}: ${req.body.enabled ? 'on' : 'off (real backend)'}`);
+    res.json({ feature: f.id, mocking: runtime[f.id].mocking });
 });
 
 // Leave a feature with no scenario and default state: POST /api/features/rvs/reset
@@ -314,6 +349,7 @@ app.post('/api/charles/map-remote', async (req, res) => {
 // 1) Fixed responses from the active scenarios (any feature, method and path)
 app.use((req, res, next) => {
     for (const f of features) {
+        if (!runtime[f.id].mocking) continue;
         const route = fixedRoutesOf(f).find((r) => matches(r, req));
         if (!route) continue;
         console.log(`[fixed] ${f.id}: ${req.method} ${req.path} -> ${route.status || 200} (${runtime[f.id].scenario})`);
@@ -329,17 +365,35 @@ app.use((req, res, next) => {
 // 2) Responses generated from each feature's state (selectors)
 app.use((req, res, next) => {
     for (const f of features) {
+        if (!runtime[f.id].mocking) continue;
         const route = (f.routes || []).find((r) => matches(r, req));
         if (!route) continue;
         const rt = runtime[f.id];
         console.log(`[generated] ${f.id}: ${req.method} ${req.path} (${rt.scenario || 'default'}${rt.modified ? ', modified' : ''})`);
-        return res.json(route.build(rt.state, req));
+        return res.json(route.build(stateFor(f), req));
     }
     next();
 });
 
+// 3) Everything else goes to the real backend, untouched
+app.use(
+    (req, res, next) => {
+        res.on('finish', () => console.log(`[real] ${req.method} ${req.originalUrl} -> ${res.statusCode}`));
+        next();
+    },
+    proxy(TARGET_HOST, {
+        limit: '20mb',
+        timeout: 30000,
+        proxyErrorHandler: (err, res) => {
+            console.warn(`[real] could not reach ${TARGET_HOST}: ${err.code || err.message}`);
+            res.status(502).json({ error: `Could not reach the real backend (${TARGET_HOST}): ${err.code || err.message}` });
+        },
+    }),
+);
+
 app.listen(port, () => {
     console.log(`ola-mocks listening on http://localhost:${port}`);
+    console.log(`  Real backend (anything not mocked): ${TARGET_HOST}`);
     for (const f of features) {
         const { scenarios, errors } = loadScenarios(f);
         console.log(`  ${f.name}: ${Object.keys(scenarios).join(', ') || 'no scenarios'}`);

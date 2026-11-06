@@ -15,7 +15,8 @@ const fields = [
     { key: 'hood', label: 'Hood', group: 'General', options: OPEN },
     { key: 'trunk', label: 'Trunk', group: 'General', options: OPEN },
     { key: 'sunRoof', label: 'Sunroof', group: 'General', options: OPEN },
-    { key: 'engine', label: 'Engine', group: 'General', options: ON },
+    // El motor solo se recibe en los MOD 4 y 5 (los BEV)
+    { key: 'engine', label: 'Engine', group: 'General', options: ON, mods: ['mod4', 'mod5'] },
     { key: 'doorFrontLeft', label: 'Front left', group: 'Doors', options: OPEN },
     { key: 'doorFrontRight', label: 'Front right', group: 'Doors', options: OPEN },
     { key: 'doorRearLeft', label: 'Rear left', group: 'Doors', options: OPEN },
@@ -26,9 +27,9 @@ const fields = [
     { key: 'windowRearRight', label: 'Rear right', group: 'Windows', options: OPEN },
 ];
 
-// Punto de partida: todo cerrado y apagado. El motor no se envía (depende del MOD).
+// Punto de partida: todo cerrado y apagado. El motor solo sale en MOD4/MOD5 o sin MOD elegido.
 const defaultState = {
-    locked: true, lights: 'off', engine: null, sunRoof: 'closed',
+    locked: true, lights: 'off', engine: 'off', sunRoof: 'closed',
     hood: 'closed', trunk: 'closed',
     doorFrontLeft: 'closed', doorFrontRight: 'closed', doorRearLeft: 'closed', doorRearRight: 'closed',
     windowFrontLeft: 'closed', windowFrontRight: 'closed', windowRearLeft: 'closed', windowRearRight: 'closed',
