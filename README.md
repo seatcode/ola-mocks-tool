@@ -11,7 +11,7 @@ npm start        # equivale a: node --use-system-ca app.js
 
 Usa `npm start` y no `node app.js`: el flag `--use-system-ca` (hace falta Node 22.15 o superior) hace que Node confíe en los certificados del sistema. Con la inspección TLS de la empresa (Zscaler), el certificado del backend real está firmado por una CA corporativa que Node no conoce por defecto, y sin el flag las llamadas no mockeadas fallan con `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`. Al arrancar, el servidor avisa si no confía en el certificado del backend.
 
-Abre http://localhost:3000. A la izquierda están las **features** (Global, RVS, VHR, Driving Data), cada una con su escenario activo; puedes tener un escenario distinto en cada una a la vez. Arriba están los controles globales (interruptor general *All mocks*, "Restablecer todo" y el tema claro/oscuro).
+Abre http://localhost:3000. A la izquierda están las **features** (Global, RVS, VHR › Maintenance, VHR › Warnings, Driving Data), cada una con su escenario activo; puedes tener un escenario distinto en cada una a la vez. Arriba están los controles globales (interruptor general *All mocks*, "Restablecer todo" y el tema claro/oscuro).
 
 ## Charles: una sola regla
 
@@ -55,7 +55,7 @@ Cada escenario es un fichero JSON en `scenarios/<feature>/`, por ejemplo `scenar
 
 - `state` (opcional): solo para features con selectores (hoy RVS). Lo que no pongas queda por defecto. Si pones un campo que la feature no tiene, la web lo indica y el escenario no se puede aplicar.
 - `mods` (opcional): lista de MOD para los que vale el escenario (`mod3`, `mod4`, `mod5`). Sin ella, vale para todos.
-- `routes` (opcional): respuestas fijas para cualquier llamada. Una feature puede tener varias (VHR, por ejemplo, usa solo esto). `:nombre` casa un tramo de la ruta y `*` casa cualquier cosa. Si una ruta fija coincide con una ruta generada por los selectores, gana la fija.
+- `routes` (opcional): respuestas fijas para cualquier llamada. Una feature puede tener varias (VHR › Warnings, por ejemplo, usa solo esto). `:nombre` casa un tramo de la ruta y `*` casa cualquier cosa. Si una ruta fija coincide con una ruta generada por los selectores, gana la fija.
 - `status`, `headers` y `delayMs` sirven para probar errores (p. ej. 503) y estados de carga.
 
 ### Global y MOD
@@ -77,7 +77,7 @@ La tarjeta *Response* de cada feature con selectores (RVS) tiene dos pestañas:
 
 Un JSON aplicado a un endpoint manda sobre el escenario y sobre los selectores **para ese endpoint**; los demás no se tocan. Cambiar un selector descarta el JSON de los endpoints que generan los selectores (p. ej. `/status` en RVS), pero no el de los que son respuestas fijas. El JSON aplicado es literal, así que campos como `updatedAt` quedan con el valor que tengan en el texto. Si guardas un escenario nuevo con el icono **+**, se guardan en sus `routes` las respuestas fijas y los JSON propios que estén en vigor.
 
-### VHR: `/maintenance`
+### VHR › Maintenance: `/maintenance`
 
 La respuesta de `GET /v2/vehicles/:vin/maintenance` se genera desde campos, con esta forma:
 
@@ -89,17 +89,35 @@ La respuesta de `GET /v2/vehicles/:vin/maintenance` se genera desde campos, con 
 }
 ```
 
-Las unidades son siempre `days` y `km` y no se pueden cambiar desde la GUI. Los valores son numéricos; un campo vacío no se envía (y si falta el valor, no se envía ese bloque). Los BEV (MOD4 y MOD5) no tienen aceite ni AdBlue: con esos MOD elegidos en Global, esos campos se desactivan y no salen. Los valores por defecto de inspección vienen de tus mocks antiguos; los de aceite y AdBlue son provisionales. `/warninglights` sigue siendo una respuesta fija del escenario (p. ej. *No warnings*).
+Las unidades son siempre `days` y `km` y no se pueden cambiar desde la GUI. Los valores son numéricos; un campo vacío no se envía (y si falta el valor, no se envía ese bloque). Los BEV (MOD4 y MOD5) no tienen aceite ni AdBlue: con esos MOD elegidos en Global, esos campos se desactivan y no salen. Los valores por defecto de inspección vienen de tus mocks antiguos; los de aceite y AdBlue son provisionales. `/warninglights` es otra feature, VHR › Warnings, independiente de esta.
 
-En un escenario de VHR, los campos van en `state` con estos nombres: `inspectionDays`, `inspectionKm`, `oilDays`, `oilKm`, `adblueKm`.
+En un escenario de Maintenance, los campos van en `state` con estos nombres: `inspectionDays`, `inspectionKm`, `oilDays`, `oilKm`, `adblueKm`.
+
+## Features independientes y agrupadas
+
+Una **feature** es una unidad con su propio escenario, estado e interruptor *Mocking*, y sus endpoints **dependen entre sí** (cambiar uno afecta a los otros). Los endpoints que no tienen relación entre sí van en features distintas, para poder elegir un escenario distinto en cada uno. La propiedad `group` las agrupa bajo un título en la barra lateral: así VHR contiene *Maintenance* y *Warnings*, que se configuran por separado (`scenarios/vhr-maintenance/`, `scenarios/vhr-warnings/`; en la API, `vhr-maintenance` y `vhr-warnings`). Si hay relación entre endpoints, van en la misma feature.
+
+## Escenario por defecto
+
+Una feature puede declarar el escenario con el que arranca, con la propiedad `defaultScenario` en su fichero `features/<id>.js` (el nombre del fichero del escenario, sin `.json`):
+
+```js
+module.exports = {
+    id: 'vhr-warnings',
+    defaultScenario: 'no-warnings',   // scenarios/vhr-warnings/no-warnings.json
+    // ...
+};
+```
+
+Se aplica al arrancar el servidor y **también al restablecer**: *Reset all* y el icono de quitar escenario de esa feature vuelven al escenario por defecto, no a "ninguno". En la web, el panel lo indica ("Default scenario: …") y el icono de quitar escenario solo aparece cuando hay algo que deshacer. Si el escenario no existe o tiene errores, el servidor avisa al arrancar y la feature empieza sin escenario. Los cambios en `features/*.js` necesitan reiniciar el servidor.
 
 ## Añadir una feature nueva
 
-1. Copia `features/vhr.js` a `features/<nombre>.js` y ajusta `id`, `name`, `description` y `paths`.
+1. Copia `features/vhr-warnings.js` a `features/<nombre>.js` y ajusta `id`, `name`, `description` y `paths` (y `group`, si va bajo un título compartido).
 2. Regístrala en `features/index.js`.
 3. Crea la carpeta `scenarios/<id>/` con sus escenarios.
 
-Si quiere selectores en la web, define `fields` (ver `features/rvs.js` para desplegables y `features/vhr.js` para campos numéricos `type: 'number'`) y `routes` con una función `build(state)` que genere la respuesta.
+Si quiere selectores en la web, define `fields` (ver `features/rvs.js` para desplegables y `features/vhr-maintenance.js` para campos numéricos `type: 'number'`) y `routes` con una función `build(state)` que genere la respuesta.
 
 ## API (para tests automáticos)
 
@@ -110,6 +128,6 @@ Si quiere selectores en la web, define `fields` (ver `features/rvs.js` para desp
 - `PUT /api/features/{feature}/route` con `{"route":{…}}`: aplica un JSON escrito a mano a un endpoint (el editor JSON de la web). `DELETE /api/features/{feature}/route?method=GET&path=/ruta` lo descarta.
 - `PUT /api/features/{feature}/routes` con `{"routes":[…]}`: aplica varios a la vez, sustituyendo los que hubiera. `DELETE` en la misma ruta quita todos.
 - `POST /api/features/{feature}/mocking` con `{"enabled":false}`: enciende o apaga el mock de esa feature (apagado = backend real).
-- `POST /api/features/{feature}/reset`: quita el escenario de esa feature y la deja con el mock encendido.
+- `POST /api/features/{feature}/reset`: vuelve la feature a su punto de partida (su escenario por defecto, o ninguno) y deja el mock encendido.
 - `POST /api/reset`: restablece todas las features.
 - `POST /api/mocking` con `{"enabled":false}`: pausa o reanuda todos los mocks (interruptor general).

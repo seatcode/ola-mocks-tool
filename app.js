@@ -35,8 +35,14 @@ const routeKey = (r) => `${String(r.method).toUpperCase()} ${r.path}`;
 // Only the feature's switch (and a reset) changes it: applying a scenario or editing never switches it back on.
 // ---------------------------------------------------------------------------
 const runtime = {};
+// The starting point of a feature: its defaultState and, if it declares one, its `defaultScenario`
+// (the name of a file in scenarios/<id>/, without .json). Used at startup and by every reset.
 function resetFeature(f) {
     runtime[f.id] = { scenario: null, modified: false, state: { ...f.defaultState }, overrides: {}, mocking: true };
+    if (!f.defaultScenario) return;
+    const { scenario, errors } = readScenario(f, f.defaultScenario);
+    if (scenario) applyScenario(f, f.defaultScenario, scenario);
+    else console.warn(`  ⚠ ${f.id}: default scenario "${f.defaultScenario}" could not be applied (${errors.join('; ')})`);
 }
 features.forEach(resetFeature);
 
@@ -161,6 +167,9 @@ function describeFeature(f) {
     return {
         id: f.id,
         name: f.name,
+        group: f.group || null,
+        // Only counts when that scenario exists and is valid (otherwise the feature starts with none)
+        defaultScenario: f.defaultScenario && f.defaultScenario in scenarios ? f.defaultScenario : null,
         description: f.description,
         paths: f.paths,
         fields: f.fields.map((fl) => ({ ...fl, unavailable: isUnavailable(fl) })),

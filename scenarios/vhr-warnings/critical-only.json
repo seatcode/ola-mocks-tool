@@ -1,0 +1,20 @@
+{
+  "name": "Critical",
+  "description": "Just one critical warning",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/v3/vehicles/:vin/warninglights",
+      "status": 200,
+      "body": {
+        "statuses": [
+          {
+            "text": "Emergency Assist: Please take over steering.",
+            "icon": "iVBORw0KGgoAAAANSUhEUgAAABkAAAAaCAYAAABCfffNAAAAAXNSR0IArs4c6QAAAIRlWElmTU0AKgAAAAgABQESAAMAAAABAAEAAAEaAAUAAAABAAAASgEbAAUAAAABAAAAUgEoAAMAAAABAAIAAIdpAAQAAAABAAAAWgAAAAAAAABIAAAAAQAAAEgAAAABAAOgAQADAAAAAQABAACgAgAEAAAAAQAAABmgAwAEAAAAAQAAABoAAAAA7GmAjQAAAAlwSFlzAAALEwAACxMBAJqcGAAAAntJREFUSA3tlE1IVUEUx29WqJGBJkYUlBEqkiIK4kaIMAlsEYJBmBtxF6lELUzXJbhxJ+5ElFroKoVQiqCVIFKZLiREQTESrcyPENN+/+e8y5t35/q19vB+78yc8z8z987MHc87tkOswIn9tDuel4LmIiQ5tH+JLTDIH0fODx1kkgHUGmwetkE1zO0lwCVIInAXfzRjpDboBufDKG7ybXvNECim6CwFN+Aa9MIwLENASwy5lwrlUA3T8BXhKt63QCFVt8i2Qx68gU7QnpyEeNMkP+EMdME4NDLoe3y4UZUAubAD28ZnuSrIpcIn2Izq8Nory05ZPTo8hQbWW8iq4DTMqeOw38SewTlohiLqp/CWBSaxsrtrm0ysgonD7B8J7UFimCCwJxIyoPZgDC7Ac9BEYbZB4gV8B73JQpjQijNJGnwDfvubdEaf5lKHLZe+4FrQcT6IVSDSkjm//LDlisT5s96Ejq8Py8XHA0/IIIlQB4PQB/51QTsLXsI7aIUcDYBPhkcwDD1wMzBwbADBbdD63oEnpl2GvwzLMAQ18Nb0r+I1gY59ObSA6vNjx7XaJO8ZUaYStB9AOvSDDoL/1dOeAr3xU9iCdFNzn7Z1AOK/zg8IdV99QTiK13XxC0pgkPXWNxG1PhoF8AqGYIaaj3jZyq7b4x/xdXgIWoZ6mIT+2BL6r2EmGqOdDY9By6XT5jaSlTAZzdKegA5ogHUoBm10IaxBMzSB3jpitGdBx99tJLWRn0FPPgJzUCo1vhNWQHsj32PiBSamOl2W2qvs2BlYZtsQnCei60T7tYQgck0Q16ZfAe2TrpJZclt4PUAGTtD0Fon/wB/b0VbgP3jr/1PXzzxuAAAAAElFTkSuQmCC",
+            "iconColor": "red"
+          }
+        ]
+      }
+    }
+  ]
+}

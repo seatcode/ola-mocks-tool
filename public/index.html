@@ -25,12 +25,15 @@
   .layout { display:flex; align-items:flex-start; gap:16px; max-width:1100px; margin:0 auto; padding:16px; }
   nav { width:210px; flex-shrink:0; position:sticky; top:64px; }
   main { flex:1; min-width:0; }
-  @media (max-width:720px) { .layout { flex-direction:column; } nav { width:100%; position:static; display:flex; gap:8px; overflow-x:auto; } nav .item { min-width:150px; } }
+  @media (max-width:720px) { .layout { flex-direction:column; } nav { width:100%; position:static; display:flex; gap:8px; overflow-x:auto; } nav .item { min-width:150px; } nav .item.child { margin-left:0; width:auto; } .navgroup { margin:0 4px; align-self:center; } }
 
   nav .item { display:block; width:100%; text-align:left; padding:10px 12px; margin-bottom:8px; background:var(--card); border:1px solid var(--line); border-radius:8px; cursor:pointer; color:var(--text); font:inherit; }
   nav .item.sel { border-color:var(--accent); box-shadow:inset 3px 0 0 var(--accent); }
   nav .item .nm { font-weight:600; display:flex; align-items:center; gap:8px; }
   nav .item .sub { font-size:12px; color:var(--muted); margin-top:2px; }
+  .navgroup { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:14px 4px 6px; white-space:nowrap; }
+  nav .item.child { margin-left:12px; width:calc(100% - 12px); }
+  .crumb { color:var(--muted); font-weight:400; }
   .dot { width:9px; height:9px; border-radius:50%; background:var(--line); flex-shrink:0; }
   .dot.on { background:var(--ok); } .dot.mod { background:var(--warn); }
 
@@ -139,6 +142,7 @@ const MESSAGES = {
     'info.noneFields': 'No scenario applied: default values are used.',
     'info.noneRoutes': 'No scenario applied: this feature does not answer anything from here.',
     'info.fixed': 'Fixed responses from the scenario:',
+    'info.defaultScenario': 'Default scenario: {name}.',
     'error.file': 'Error in {file}: {msg}',
     'endpoints.title': 'Endpoints',
     'endpoints.note': 'While the feature is mocked, its endpoints are answered here; everything else goes to the real backend.',
@@ -247,9 +251,11 @@ function badge(f) {
 
 function render() {
   const id = currentId();
-  document.getElementById('nav').innerHTML = data.features.map(f => {
+  // Features that share a `group` are independent units shown under one title
+  document.getElementById('nav').innerHTML = data.features.map((f, i) => {
     const b = badge(f);
-    return `<button class="item ${f.id === id ? 'sel' : ''}" data-f="${esc(f.id)}"><div class="nm"><span class="dot ${b.dot}"></span>${esc(f.name)}</div><div class="sub">${esc(b.text)}</div></button>`;
+    const head = f.group && (i === 0 || data.features[i - 1].group !== f.group) ? `<div class="navgroup">${esc(f.group)}</div>` : '';
+    return `${head}<button class="item ${f.group ? 'child' : ''} ${f.id === id ? 'sel' : ''}" data-f="${esc(f.id)}"><div class="nm"><span class="dot ${b.dot}"></span>${esc(f.name)}</div><div class="sub">${esc(b.text)}</div></button>`;
   }).join('');
   document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { location.hash = b.dataset.f; });
 
@@ -267,6 +273,7 @@ function render() {
     if (f.modified) info.push('<strong>' + esc(t('info.modified', { name: f.scenario })) + '</strong>');
     if (sc && mismatch(sc)) info.push('<span class="err">' + esc(t('info.modMismatch', { list: modList(sc), mod: modText(data.mod) })) + '</span>');
   } else info.push(esc(t(f.fields.length ? 'info.noneFields' : 'info.noneRoutes')));
+  if (f.defaultScenario) info.push(esc(t('info.defaultScenario', { name: (f.scenarios.find(s => s.key === f.defaultScenario) || {}).name || f.defaultScenario })));
   if (f.fixedRoutes.length) info.push(esc(t('info.fixed')) + ' ' + f.fixedRoutes.map(r => '<code>' + esc(r) + '</code>').join(', '));
 
   const scenarios = f.scenarios.length
@@ -274,7 +281,8 @@ function render() {
     : `<span class="note" style="margin:0">${esc(t('scenarios.empty', { id: f.id }))}</span>`;
   const errors = Object.entries(f.errors).map(([k, e]) => esc(t('error.file', { file: f.id + '/' + k + '.json', msg: e.join('; ') }))).join('<br>');
 
-  const canClear = f.scenario || f.modified;
+  // Nothing to undo when the feature is already at its starting point (its default scenario, or none)
+  const canClear = f.modified || f.scenario !== f.defaultScenario;
   const icons = `<div class="row" style="gap:2px">
       ${canClear ? `<button class="icon-btn" id="clearSc" title="${esc(t('scenarios.clear'))}" aria-label="${esc(t('scenarios.clear'))}">${ICON_RESET}</button>` : ''}
       <button class="icon-btn" id="newSc" title="${esc(t('scenarios.new'))}" aria-label="${esc(t('scenarios.new'))}">${ICON_PLUS}</button></div>`;
@@ -369,7 +377,7 @@ function render() {
     <div role="tabpanel">${tab === 'selectors' ? selectorsPanel : jsonPanel}</div></div>`;
 
   document.getElementById('main').innerHTML = `
-    <div class="pagehead"><div><h1>${esc(f.name)}</h1><p class="desc">${esc(f.description)}</p></div>
+    <div class="pagehead"><div><h1>${f.group ? `<span class="crumb">${esc(f.group)} ·</span> ` : ''}${esc(f.name)}</h1><p class="desc">${esc(f.description)}</p></div>
       <div class="mock"><span>${esc(t('feature.mocking'))}</span>
         <button class="switch" id="mockSwitch" role="switch" aria-checked="${f.mocking}" aria-label="${esc(t('feature.mocking'))}" title="${esc(t(f.mocking ? 'feature.mockingOn' : 'feature.mockingOff'))}"><span class="knob"></span></button></div></div>
     ${data.mockingEnabled ? '' : `<div class="note err" style="margin:0 0 10px">${esc(t('banner.paused'))}</div>`}

@@ -66,6 +66,7 @@ module.exports = {
     id: 'rvs',
     name: 'RVS',
     description: 'Remote Vehicle Status: doors, lights, windows, hood, trunk and engine.',
+    defaultScenario: 'safe',
     paths: ['GET /v2/vehicles/:vin/status'],
     fields,
     defaultState,

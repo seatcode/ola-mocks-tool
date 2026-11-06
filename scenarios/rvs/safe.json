@@ -1,5 +1,5 @@
 {
-  "name": "SAFE: everything closed and off",
+  "name": "Safe",
   "description": "Vehicle locked, lights and engine off, and doors, windows, sunroof, hood and trunk closed.",
   "state": {
     "locked": true,

@@ -1,13 +1,11 @@
 // Feature VHR (Vehicle Health Report): mantenimiento y testigos de aviso.
-//  - /maintenance se genera desde los campos (esquema que pasó Alex):
+//  - /maintenance se genera desde los campos:
 //      { inspectionDue: {duration:{value,unit}, distance:{value,unit}},
 //        oilServiceDue: {duration:{value,unit}, distance:{value,unit}},
 //        adblueDue: {value, unit} }
 //    Los BEV (MOD4 y MOD5) no tienen aceite ni AdBlue, así que esos campos solo existen en MOD3.
-//  - /warninglights sigue siendo una respuesta fija de los escenarios (scenarios/vhr/*.json).
 //
-// Las unidades son siempre `days` y `km` (no se pueden cambiar desde la GUI). Los valores por defecto de
-// inspección vienen de los mocks antiguos de Alex; los de aceite y AdBlue son provisionales.
+// Las unidades son siempre `days` y `km` (no se pueden cambiar desde la GUI)
 
 const DAYS = 'days';
 const KM = 'km';
@@ -42,10 +40,11 @@ function buildMaintenance(s) {
 }
 
 module.exports = {
-    id: 'vhr',
-    name: 'VHR',
-    description: 'Vehicle Health Report: maintenance and warning lights.',
-    paths: ['GET /v2/vehicles/:vin/maintenance', 'GET /v3/vehicles/:vin/warninglights'],
+    id: 'vhr-maintenance',
+    group: 'VHR',
+    name: 'Maintenance',
+    description: 'Vehicle Health Report: inspection, oil service and AdBlue.',
+    paths: ['GET /v2/vehicles/:vin/maintenance'],
     fields,
     defaultState,
     routes: [{ method: 'GET', path: '/v2/vehicles/:vin/maintenance', build: buildMaintenance }],
