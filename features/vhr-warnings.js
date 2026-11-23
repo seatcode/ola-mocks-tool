@@ -10,6 +10,6 @@ module.exports = {
     description: 'Vehicle Health Report: warning lights.',
     paths: ['GET /v3/vehicles/:vin/warninglights'],
     fields: [],
-    defaultState: [],
+    defaultState: {},
     routes: []
 };

@@ -63,10 +63,29 @@ Cada escenario es un fichero JSON en `scenarios/<feature>/`, por ejemplo `scenar
 La feature **Global** reúne ajustes que afectan a todo el vehículo:
 
 - **Remote availability** (`online`, `offline`, `no-coverage`): responde `GET /v1/vehicles/:vin/remote-availability` con `{"remote-availability": "<modo>"}`.
-- **MOD** (`mod3`, `mod4`, `mod5`, o "Not set"): el MOD con el que quieres probar. Al elegirlo cambian las respuestas de las demás features, sin depender del MOD real del coche:
+- **MOD** (`mod3` por defecto, `mod4`, `mod5`): el MOD con el que quieres probar. Al elegirlo cambian las respuestas de las demás features, sin depender del MOD real del coche:
   - Un campo de una feature puede declarar en qué MOD existe (`mods: [...]` en su definición). Con otro MOD elegido, el selector se desactiva y el campo no se envía. Hoy, el motor de RVS solo se envía en MOD4 y MOD5.
   - Un escenario puede llevar `"mods": ["mod4", "mod5"]`; si el MOD elegido no está en la lista, el botón se atenúa y la web avisa al aplicarlo (no se bloquea).
-  - Con "Not set" no se filtra nada.
+- **MOD restrictions** (`apply` por defecto, `ignore`): con `ignore` no se filtra nada por MOD. Los campos que no existen en el MOD elegido se envían igual (por ejemplo, el motor en MOD3), los selectores se activan y los escenarios no se atenúan.
+
+### Capabilities: `GET /v1/user/:userId/vehicle/:vin/capabilities`
+
+Lo sirve **Global**, que guarda el valor de cada capability **una sola vez**. Se editan en la tarjeta **Capabilities** de Global, agrupadas por la pantalla de la app a la que afectan (según Android e iOS; el mapa está en `CAPABILITY_GROUPS`, `features/global.js`):
+
+| Pantalla | Capability |
+|---|---|
+| Vehicle Status (RVS y VHR) | `state` y `vehicleHealth` |
+| Driving Data | `tripStatistics` |
+
+Al pasar el ratón por el nombre de una capability se ve qué hace la app con ella.
+
+- La respuesta parte de un **catálogo por MOD** (`catalogs/capabilities/mod3.json`, `mod4.json`, `mod5.json`; el MOD de Global elige cuál). `platform`, `userId` y `vin` se rellenan solos (los dos últimos, desde la URL).
+- Valores: `Default` (como el catálogo), `Active`, `Inactive` (sin motivo), `Inactive · <motivo>` (añade `status`: insufficient-battery-level, deactivated-by-active-vehicle-user, initially-disabled, license-expired, location-data-disabled) y `Disabled (not sent)` (no aparece en la lista; las apps la tratan como no disponible y ocultan la tarjeta). Las apps solo distinguen la licencia y `location-data-disabled` en el aviso; el resto da el genérico de inactivo.
+- **Situation** (arriba de la tarjeta): afecta a todas a la vez. Hoy: `insufficient-battery-level` (todas inactivas con ese motivo, salvo unas pocas que siguen activas, copiadas de una respuesta real de MOD5; están en `SITUATIONS`). Lo fijado a mano en una capability manda sobre la situación.
+- Una capability que no existe en el MOD elegido aparece desactivada y no se envía. Con Global › MOD restrictions = `ignore`, configurarla la añade a la respuesta.
+- Las demás capabilities (y los `parameters`) se editan en la pestaña JSON del endpoint.
+- Para otro tipo de coche (según lo comprado), copia un catálogo y ajústalo; se leen al arrancar.
+- Para añadir una capability a una feature: añádela a `CAPABILITY_GROUPS`.
 
 ### Editar la respuesta desde la web
 

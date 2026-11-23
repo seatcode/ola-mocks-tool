@@ -59,7 +59,10 @@ function validateScenario(feature, sc) {
     const errors = [];
     const byKey = Object.fromEntries(feature.fields.map((fl) => [fl.key, fl]));
     for (const [key, value] of Object.entries(sc.state || {})) {
-        if (!(key in byKey)) errors.push(`state.${key}: unknown field in ${feature.name}`);
+        // "*" sets every field of the feature at once; the specific keys then override it
+        if (key === '*') {
+            if (!feature.fields.length || !feature.fields.every((fl) => isValidValue(fl, value))) errors.push(`state.*: ${JSON.stringify(value)} is not valid for every field of ${feature.name}`);
+        } else if (!(key in byKey)) errors.push(`state.${key}: unknown field in ${feature.name}`);
         else if (!isValidValue(byKey[key], value)) errors.push(`state.${key}: invalid value (${JSON.stringify(value)})`);
     }
     if (sc.routes !== undefined) errors.push(...validateRoutes(sc.routes));
@@ -121,16 +124,31 @@ function fixedRoutesOf(f) {
     return [...Object.values(rt.overrides), ...fromScenario.filter((r) => !(routeKey(r) in rt.overrides))];
 }
 
-// MOD currently selected in the Global feature (null = the real one, not forced)
+// A scenario state may use "*" (every field); the specific keys win over it
+function expandState(f, st = {}) {
+    if (!('*' in st)) return st;
+    const { '*': all, ...rest } = st;
+    return { ...Object.fromEntries(f.fields.map((fl) => [fl.key, all])), ...rest };
+}
+
+// MOD currently selected in the Global feature
 const currentMod = () => (runtime.global ? runtime.global.state.mod : null);
+// Global > MOD restrictions = ignore: nothing is filtered by MOD
+const ignoreMods = () => Boolean(runtime.global && runtime.global.state.modRestrictions === 'ignore');
 // A field marked with mods: [...] is not sent when a MOD outside that list is selected
-const isUnavailable = (fl) => Boolean(fl.mods && currentMod() && !fl.mods.includes(currentMod()));
-// The state used to build responses: unavailable fields are dropped (null = not sent)
+const isUnavailable = (fl) => Boolean(fl.mods && currentMod() && !ignoreMods() && !fl.mods.includes(currentMod()));
+// The state used to build responses: unavailable fields are dropped (null = not sent, or the field's unavailableValue)
 function stateFor(f) {
     const s = { ...runtime[f.id].state };
-    for (const fl of f.fields) if (isUnavailable(fl) && isNullable(fl)) s[fl.key] = null;
+    for (const fl of f.fields) {
+        if (!isUnavailable(fl)) continue;
+        if ('unavailableValue' in fl) s[fl.key] = fl.unavailableValue;
+        else if (isNullable(fl)) s[fl.key] = null;
+    }
     return s;
 }
+// What a route's build() gets besides the state
+const buildContext = () => ({ mod: currentMod(), ignoreMods: ignoreMods() });
 
 // Everything this feature answers right now, in the order it is served: fixed routes first,
 // then the routes generated from the selectors that no fixed route replaces.
@@ -139,7 +157,7 @@ function effectiveRoutes(f) {
     const fixed = fixedRoutesOf(f);
     const generated = (f.routes || [])
         .filter((g) => !fixed.some((r) => String(r.method).toUpperCase() === g.method && r.path === g.path))
-        .map((g) => ({ method: g.method, path: g.path, status: 200, body: g.build(stateFor(f), {}) }));
+        .map((g) => ({ method: g.method, path: g.path, status: 200, body: g.build(stateFor(f), {}, buildContext()) }));
     return [...fixed, ...generated];
 }
 
@@ -149,7 +167,8 @@ function recomputeModified(f) {
     let base = f.defaultState;
     if (rt.scenario) {
         const { scenario } = readScenario(f, rt.scenario);
-        base = { ...f.defaultState, ...((scenario && scenario.state) || {}) };
+        const sc = expandState(f, scenario && scenario.state);
+        base = { ...f.defaultState, ...sc };
     }
     rt.modified = Object.keys(rt.overrides).length > 0 || JSON.stringify(rt.state, Object.keys(rt.state).sort()) !== JSON.stringify(base, Object.keys(base).sort());
 }
@@ -173,6 +192,11 @@ function describeFeature(f) {
         description: f.description,
         paths: f.paths,
         fields: f.fields.map((fl) => ({ ...fl, unavailable: isUnavailable(fl) })),
+        // Global only: the capabilities card (capabilities grouped by the screen of the app they affect)
+        capabilityGroups: f.capabilityGroups ? f.capabilityGroups.map((g) => ({
+            name: g.name,
+            items: g.items.map((i) => ({ key: `cap_${i.id}`, id: i.id, hint: i.hint })),
+        })) : null,
         scenario: rt.scenario,
         mocking: rt.mocking,
         modified: rt.modified,
@@ -190,7 +214,7 @@ function describeFeature(f) {
 }
 
 app.get('/api/state', (_req, res) => {
-    res.json({ mockingEnabled, target: TARGET_HOST, mod: currentMod(), mods: MODS, features: features.map(describeFeature) });
+    res.json({ mockingEnabled, target: TARGET_HOST, mod: currentMod(), ignoreMods: ignoreMods(), mods: MODS, features: features.map(describeFeature) });
 });
 
 // Change one or more fields: PUT /api/features/rvs/state {"lights":"on","doorFrontLeft":"open"}
@@ -259,7 +283,7 @@ app.delete('/api/features/:id/routes', (req, res) => {
 });
 
 function applyScenario(f, name, scenario) {
-    runtime[f.id] = { scenario: name, modified: false, state: { ...f.defaultState, ...(scenario.state || {}) }, overrides: {}, mocking: runtime[f.id].mocking };
+    runtime[f.id] = { scenario: name, modified: false, state: { ...f.defaultState, ...expandState(f, scenario.state) }, overrides: {}, mocking: runtime[f.id].mocking };
     console.log(`[scenario] ${f.id}: ${name}`);
 }
 
@@ -373,7 +397,7 @@ app.use((req, res, next) => {
         if (!route) continue;
         const rt = runtime[f.id];
         console.log(`[generated] ${f.id}: ${req.method} ${req.path} (${rt.scenario || 'default'}${rt.modified ? ', modified' : ''})`);
-        return res.json(route.build(stateFor(f), req));
+        return res.json(route.build(stateFor(f), req, buildContext()));
     }
     next();
 });

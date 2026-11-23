@@ -61,6 +61,10 @@
   .checks { display:flex; gap:14px; flex-wrap:wrap; }
   .checks label { display:flex; align-items:center; gap:6px; margin:0; color:var(--text); font-size:14px; }
   .hint { font-size:12px; color:var(--muted); margin-top:4px; }
+  /* Capability dropdowns are tinted by their value */
+  select.cap-active { border-color:var(--ok); box-shadow:inset 3px 0 0 var(--ok); }
+  select.cap-inactive { border-color:var(--warn); box-shadow:inset 3px 0 0 var(--warn); }
+  select.cap-disabled { border-color:var(--err); border-style:dashed; box-shadow:inset 3px 0 0 var(--err); }
   /* Icon without button look (uses --muted/--text, valid in light and dark) */
   .icon-btn { display:inline-flex; padding:6px; background:none; border:0; border-radius:6px; color:var(--muted); }
   .icon-btn:hover { color:var(--text); }
@@ -200,6 +204,20 @@ const MESSAGES = {
     'info.modMismatch': 'This scenario is meant for {list}, but the selected MOD is {mod}.',
     'scenarios.meantFor': 'Meant for: {list}',
     'form.mods': 'Valid for MOD (none selected = all)',
+    'value.default': 'Default',
+    'value.active': 'Active',
+    'value.inactive': 'Inactive',
+    'value.disabled': 'Disabled (not sent)',
+    'value.insufficient-battery-level': 'Inactive · insufficient-battery-level',
+    'value.deactivated-by-active-vehicle-user': 'Inactive · deactivated-by-active-vehicle-user',
+    'value.initially-disabled': 'Inactive · initially-disabled',
+    'value.license-expired': 'Inactive · license-expired',
+    'value.location-data-disabled': 'Inactive · location-data-disabled',
+    'value.none': 'None',
+    'value.capabilitiesSituation.insufficient-battery-level': 'Insufficient battery level',
+    'value.apply': 'Apply',
+    'value.ignore': 'Ignore',
+    'cap.title': 'Capabilities',
     'value.true': 'Locked',
     'value.false': 'Unlocked',
   },
@@ -239,6 +257,9 @@ function currentId() {
   return data.features.some(f => f.id === id) ? id : (data.features[0] && data.features[0].id);
 }
 
+// Capability fields (and Global's capabilities situation) live in their own card, not among the selectors
+const isCap = fl => fl.group === 'Capabilities';
+
 function badge(f) {
   if (!f.mocking) return { dot: '', text: t('badge.real') };
   const mod = f.modified ? t('badge.modified') : '';
@@ -246,7 +267,7 @@ function badge(f) {
     const name = (f.scenarios.find(s => s.key === f.scenario) || {}).name || f.scenario;
     return { dot: f.modified ? 'mod' : 'on', text: name + mod };
   }
-  return f.fields.length ? { dot: f.modified ? 'mod' : '', text: t('badge.default') + mod } : { dot: '', text: t('badge.none') };
+  return f.fields.some(fl => !isCap(fl)) ? { dot: f.modified ? 'mod' : '', text: t('badge.default') + mod } : { dot: '', text: t('badge.none') };
 }
 
 function render() {
@@ -264,7 +285,7 @@ function render() {
   if (draft && draft.id !== f.id) draft = null;
 
   // Scenarios
-  const mismatch = s => Boolean(s.mods && data.mod && !s.mods.includes(data.mod));
+  const mismatch = s => Boolean(s.mods && data.mod && !data.ignoreMods && !s.mods.includes(data.mod));
   const modList = s => s.mods.map(modText).join(', ');
   const info = [];
   if (f.scenario) {
@@ -272,7 +293,7 @@ function render() {
     if (sc && sc.description) info.push(esc(sc.description));
     if (f.modified) info.push('<strong>' + esc(t('info.modified', { name: f.scenario })) + '</strong>');
     if (sc && mismatch(sc)) info.push('<span class="err">' + esc(t('info.modMismatch', { list: modList(sc), mod: modText(data.mod) })) + '</span>');
-  } else info.push(esc(t(f.fields.length ? 'info.noneFields' : 'info.noneRoutes')));
+  } else info.push(esc(t(f.fields.some(fl => !isCap(fl)) ? 'info.noneFields' : 'info.noneRoutes')));
   if (f.defaultScenario) info.push(esc(t('info.defaultScenario', { name: (f.scenarios.find(s => s.key === f.defaultScenario) || {}).name || f.defaultScenario })));
   if (f.fixedRoutes.length) info.push(esc(t('info.fixed')) + ' ' + f.fixedRoutes.map(r => '<code>' + esc(r) + '</code>').join(', '));
 
@@ -307,10 +328,12 @@ function render() {
   }
 
   // Response editor: selectors (generated from f.fields, grouped) or raw JSON
-  const hasSel = f.fields.length > 0;
+  const selFields = f.fields.filter(fl => !isCap(fl));
+  const capFields = f.fields.filter(isCap);
+  const hasSel = selFields.length > 0;
   const tab = hasSel ? (tabs[f.id] || 'selectors') : 'json';
   const groups = [];
-  for (const fl of f.fields) { let g = groups.find(x => x.name === fl.group); if (!g) groups.push(g = { name: fl.group, fields: [] }); g.fields.push(fl); }
+  for (const fl of selFields) { let g = groups.find(x => x.name === fl.group); if (!g) groups.push(g = { name: fl.group, fields: [] }); g.fields.push(fl); }
   // One collapsible block per endpoint: the feature's documented paths plus any extra route a scenario / JSON defines.
   // With a single endpoint it starts open; the choice is remembered across re-renders.
   const keyOf = r => `${String(r.method).toUpperCase()} ${r.path}`;
@@ -336,7 +359,9 @@ function render() {
 
   // One input per field: a dropdown, or a free number input (empty = not sent)
   const control = (f, fl) => {
-    const common = `id="${esc(fl.key)}" data-key="${esc(fl.key)}" ${fl.unavailable ? 'disabled' : ''}`;
+    // capability dropdowns are tinted by their value: active green, inactive (any reason) amber, disabled red
+    const tint = fl.capability ? ({ default: '', active: 'cap-active', disabled: 'cap-disabled' }[f.state[fl.key]] ?? 'cap-inactive') : '';
+    const common = `id="${esc(fl.key)}" data-key="${esc(fl.key)}" class="${tint}" ${fl.unavailable ? 'disabled' : ''}`;
     const cur = f.state[fl.key];
     if (fl.type === 'number') {
       return `<input ${common} type="number" step="any" data-type="number" value="${esc(cur === null || cur === undefined ? '' : cur)}" placeholder="${esc(t('value.null'))}">`;
@@ -344,14 +369,25 @@ function render() {
     return `<select ${common}>${fl.options.map(v => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(tv(fl.key, v))}</option>`).join('')}</select>`;
   };
 
-  const selectorsPanel = `
-    ${f.customKeys.length ? `<div class="note err" style="margin:0 0 12px">${esc(t('selectors.customNote', { list: f.customKeys.join(', ') }))}</div>` : ''}
-    ${groups.map(g => `<h3>${esc(tr('group.' + g.name, g.name))}</h3><div class="grid">${g.fields.map(fl => `
-      <div><label for="${esc(fl.key)}">${esc(tr('field.' + fl.key, fl.label))}</label>
+  // A label + input + hints for one field
+  const fieldHtml = fl => `<div><label for="${esc(fl.key)}">${esc(tr('field.' + fl.key, fl.label))}</label>
       ${control(f, fl)}
       ${fl.unavailable ? `<div class="hint err">${esc(t('field.unavailable', { mod: modText(data.mod) }))}</div>` : ''}
-      ${fl.hint ? `<div class="hint">${esc(tr('hint.' + fl.key, fl.hint))}</div>` : ''}</div>`).join('')}
-    </div>`).join('')}`;
+      ${fl.hint ? `<div class="hint">${esc(tr('hint.' + fl.key, fl.hint))}</div>` : ''}</div>`;
+  const selectorsPanel = `
+    ${f.customKeys.length ? `<div class="note err" style="margin:0 0 12px">${esc(t('selectors.customNote', { list: f.customKeys.join(', ') }))}</div>` : ''}
+    ${groups.map(g => `<h3>${esc(tr('group.' + g.name, g.name))}</h3><div class="grid">${g.fields.map(fieldHtml).join('')}</div>`).join('')}`;
+
+  // Capabilities card (Global): each capability once, grouped by the screen of the app; the explanation is a tooltip
+  const capItem = (fl, label, tip) => `<div><label for="${esc(fl.key)}" ${tip ? `title="${esc(tip)}"` : ''}>${esc(label)}</label>
+      ${control(f, fl)}${fl.unavailable ? `<div class="hint err">${esc(t('field.unavailable', { mod: modText(data.mod) }))}</div>` : ''}</div>`;
+  const capCard = f.capabilityGroups ? (() => {
+    const byKey = Object.fromEntries(capFields.map(fl => [fl.key, fl]));
+    const situation = capFields.find(fl => !fl.capability);
+    return `<div class="card"><div class="cardhead"><h2>${esc(t('cap.title'))}</h2></div>
+      ${situation ? `<div class="grid">${capItem(situation, situation.label, situation.hint)}</div>` : ''}
+      ${f.capabilityGroups.map(g => `<h3>${esc(g.name)}</h3><div class="grid">${g.items.map(it => capItem(byKey[it.key], it.id, it.hint)).join('')}</div>`).join('')}</div>`;
+  })() : '';
 
   // JSON tab: one editor per endpoint, each applied on its own
   const jsonPanel = endpointKeys.map(k => {
@@ -387,6 +423,7 @@ function render() {
       <div class="row">${scenarios}</div>
       <div class="note">${info.join('<br>')}</div><div class="note err">${errors}</div>${form}</div>
     ${editor}
+    ${capCard}
     ${tab === 'selectors' ? `<div class="card"><h2>${esc(t('endpoints.title'))}</h2>
       ${endpoints}
       <div class="note">${esc(t('endpoints.note'))}</div></div>` : ''}`;
