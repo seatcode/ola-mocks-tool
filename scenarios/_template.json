@@ -1,0 +1,21 @@
+{
+  "name": "Name shown in the web UI",
+  "description": "What this scenario is for. Copy this file into scenarios/<feature>/, remove the '_' from its name and edit it.",
+  "state": {
+    "locked": true,
+    "lights": "off",
+    "doorFrontLeft": "open"
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/v1/example/:vin/capabilities",
+      "status": 200,
+      "delayMs": 0,
+      "headers": {},
+      "body": {
+        "TODO": "paste the real response of that call here"
+      }
+    }
+  ]
+}

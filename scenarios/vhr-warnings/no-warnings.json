@@ -1,0 +1,14 @@
+{
+  "name": "No warnings",
+  "description": "No warning lights.",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/v3/vehicles/:vin/warninglights",
+      "status": 200,
+      "body": {
+        "statuses": []
+      }
+    }
+  ]
+}

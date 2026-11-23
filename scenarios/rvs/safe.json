@@ -1,0 +1,20 @@
+{
+  "name": "Safe",
+  "description": "Vehicle locked, lights and engine off, and doors, windows, sunroof, hood and trunk closed.",
+  "state": {
+    "locked": true,
+    "lights": "off",
+    "engine": "off",
+    "sunRoof": "closed",
+    "hood": "closed",
+    "trunk": "closed",
+    "doorFrontLeft": "closed",
+    "doorFrontRight": "closed",
+    "doorRearLeft": "closed",
+    "doorRearRight": "closed",
+    "windowFrontLeft": "closed",
+    "windowFrontRight": "closed",
+    "windowRearLeft": "closed",
+    "windowRearRight": "closed"
+  }
+}

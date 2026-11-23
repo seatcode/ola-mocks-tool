@@ -1,0 +1,20 @@
+{
+  "name": "Everything open and on",
+  "description": "Vehicle unlocked, lights and engine on, and all doors, windows, sunroof, hood and trunk open.",
+  "state": {
+    "locked": false,
+    "lights": "on",
+    "engine": "on",
+    "sunRoof": "open",
+    "hood": "open",
+    "trunk": "open",
+    "doorFrontLeft": "open",
+    "doorFrontRight": "open",
+    "doorRearLeft": "open",
+    "doorRearRight": "open",
+    "windowFrontLeft": "open",
+    "windowFrontRight": "open",
+    "windowRearLeft": "open",
+    "windowRearRight": "open"
+  }
+}

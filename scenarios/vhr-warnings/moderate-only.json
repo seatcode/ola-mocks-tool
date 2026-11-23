@@ -1,0 +1,20 @@
+{
+  "name": "Moderate",
+  "description": "Just one moderate warning",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/v3/vehicles/:vin/warninglights",
+      "status": 200,
+      "body": {
+        "statuses": [
+          {
+            "text": "Please check front-left turn signal.",
+            "icon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEYAAABGCAYAAABxLuKEAAAACXBIWXMAAAsSAAALEgHS3X78AAAEIUlEQVR42u2c7VHjMBCGX2XyP+mAXAV4xgXEHZAOCBUQKrjQQaiApINQAaYAz5gKzqngoALdD4mL0UciWysjGO2MZ7BBlvJ4P7S7DoxzjiS6jBKCBCaBSWASmOFlPNhMFVsCWHreZYucb+MFU7ECOS87jpoBmHuutxxorT1MqWJbAM9SA+IWj7WOe0x0Lc8eUTF4qPaL49/NPaD0Xuu4w0RTAJlytT+cnBeO83JPKB9SANjSm1LO3+TNXw1wlpGZjwplh5wvw/mY2OEQQekXlXL+hooVMkJc9jYrYZqFNM+ZPACgaR3lV0DpH65p4Pwlc7bEUPx2vnazWllGTAmMpUDFZobrDSUU/5RAh/Mizz+bTMX2AG4JwMwB1Jo/y/kawB0VFABgJIUq4S82AFYS1sf1TJrbxDLyVf6+AVC3NCuTR3FirA6gYkuqlIEFq+CdhrIDsEbOG8ccaw3gwgkOkYQBY4fyJLWq6XHPlQQ0GQIOPRhhVo3hA9wh5xvLmLIVjV6su2LhePdKJASAG+qsO0Q9ZmuAcmOF0s3ZN5ZIuLFEq0jAiL3NlUFT6J7mMRK+t65OpPOPVmM2WgZNoSlmOAvl6pV8MJGBEYtSbT9c/iSKT7tQ81FqzNIQLRqElbVyfi2df1RgFmfMKoTWNNALXot4wIh9SzsSHZDzeqBiw17LpyLSGDVUdoVSWn7uOta0li8Fk3mC8TGn2rtscbYe415fvZcZbfwiouWzI2QWcuf7IySBcTIl4L6nw3sL4QAdTUWd66CcNx0+lwVMf79Rn3HGIaUwgFD3Op0/F13ZQXfcvwbY+ZoK4SSBgdLHPA2WJx2hTKF3B/axOV91QSvnvEUUzNfy6JLrrDT/QrTjpgaj1khcVboB8FsetSPMmQHMNr5wLWokauJ4e7ZGIord7TzrAhVbOD6I9rh3ysQ1RKHqoH0AkWS6RrTzKYVwuJdaCaLduokKjFiY6nQnAEorHOETHlpXHk5GM3M7lrxSGKp9spb+QpVTnYJpC67Np5g6BAcAGaW2hANjf7KAqPCvkfO9431mUgtNoN8BFCFqPyzodwkqtoG9Z32QGlACqD+Zj3DYHy3aqxPjF6EKYpQ7X3PfWESdDew96L6byaVmPhWbUe22R4Rm8yh9i+pct/Lp7whmOkA07xYGKBmAP1RvdvlrjO5L7L1ksfgVRMG6iwa9AthYG3fC9Nr7Gu+W7ZgYyrlwXv8P52ITl7Wy43lLKxocXw3ZO5iHaqq+r9p6aEyA17s8k8kShM3+0beHctz7FCB8m3T07aEEgjP6EVACwBl1tOMsCJSKlagYl0cZCE4RBow+YTyaEmCtfV+Zv48WCtFaWRTfu3Z9B29ASQ23BCaBSWASmAQmHhlHso7a8vOXCUv/PyaZUgKTwCQwCUw08g8+WeGZv+zBaQAAAABJRU5ErkJggg==",
+            "iconColor": "yellow"
+          }
+        ]
+      }
+    }
+  ]
+}

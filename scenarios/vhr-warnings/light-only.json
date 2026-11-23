@@ -1,0 +1,20 @@
+{
+  "name": "Light",
+  "description": "Just one light warning",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/v3/vehicles/:vin/warninglights",
+      "status": 200,
+      "body": {
+        "statuses": [
+          {
+            "text": "Please replace key battery.",
+            "icon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEYAAABGCAYAAABxLuKEAAAACXBIWXMAAAsSAAALEgHS3X78AAACQ0lEQVR42u3Z0W3bMBAG4D9F36UNohGUCepuYE9QZoJogyaTWCO0E9TdQJmg9gRhJri+nAtBEUnRpl2T+A8gDFgSLX0+8ijpTkTA+BifSEAYwhCGMIQhDGEIQxjCEIZBGMIQhjCEIQxhCEOY0uNzAddQA1gBaPUTAPbadtqi4y7j1yc1gGcABkDl2e8AoNd9i4dZAfgRAJkDWgMYSp1jDIBfkSgAcK/Dqi0RxgDYnnF8tRQnF5jjfLJN0Felw7BOBbMDIP+pvQH4nhD6HkCXYvLtAXwrbKnyDqABYE/NGFMgynFIrU/NmJVWgFzjt84nVq9l+gf/dOH4YBqt+VWmKI86BYyj1bmyGg2n+UlYRFxtEHf0nuMu0TqJiz6ir9n9fBljHdly0Gy6dsQUgAfPCrfWKvdv1MROvitNtblS118ZpYssAL5lv01xrzQdk7nERidd19z555yMOcq7MueWo1u47XDOyncYPedwLZQ2AF5vCOaLDvd6BuVp0ZCLqAzGUQHWur0WETv6fghUti6wPUVYrVC9iOxnthvX9caWTRPouNWTGRSqdly8GWFeGseHhlQwYxyzcP9mkknT40I4RvtIDdilhjmltSKy82CGMmucjSliCJ0zrryCDeHZwPg3iYZQkxPMksw6F8fqbwTPJeeH4b2uwmPutNdLV765vnA7Prd98S3SRiBfFdMu/YGc3ytNb13ayc3toG1/SoelwCQPvrsmDGEIQxjCEIYwhCEMYQjDIAxhCEMYwhCGMIQhTPHxF5siCJuvaeYNAAAAAElFTkSuQmCC",
+            "iconColor": "white"
+          }
+        ]
+      }
+    }
+  ]
+}

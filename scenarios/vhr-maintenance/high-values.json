@@ -1,0 +1,11 @@
+{
+    "name": "High Values",
+    "description": "Really high values to check responsiveness on the screen",
+    "state": {
+        "inspectionDays": 9999,
+        "inspectionKm": 9999,
+        "oilDays": 9999,
+        "oilKm": 9999,
+        "adblueKm": 9999
+    }
+}

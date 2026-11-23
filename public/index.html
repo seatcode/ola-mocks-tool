@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OLA Mocks</title>
+<script>
+  // Apply the saved theme before first paint, so it doesn't flash
+  try { const t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<style>
+  /* Theme: follows the system by default; the header icon forces light or dark (data-theme) */
+  :root { color-scheme:light; --bg:#f6f7f9; --card:#fff; --text:#1c1f24; --muted:#6b7280; --line:#e2e5ea; --accent:#0b6bcb; --on-accent:#fff; --ok:#1f8a4c; --warn:#b7791f; --err:#c0392b; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { color-scheme:dark; --bg:#14161a; --card:#1d2025; --text:#e8eaed; --muted:#9aa0a6; --line:#2d3138; --accent:#5aa2f0; --on-accent:#0b1220; --ok:#4cc17d; --warn:#e0b24d; --err:#ef6f60; }
+  }
+  :root[data-theme="dark"] { color-scheme:dark; --bg:#14161a; --card:#1d2025; --text:#e8eaed; --muted:#9aa0a6; --line:#2d3138; --accent:#5aa2f0; --on-accent:#0b1220; --ok:#4cc17d; --warn:#e0b24d; --err:#ef6f60; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 system-ui, sans-serif; }
+  code { font-size:12.5px; }
+
+  header.top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 16px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header.top strong { font-size:16px; }
+  .spacer { flex:1; }
+  .layout { display:flex; align-items:flex-start; gap:16px; max-width:1100px; margin:0 auto; padding:16px; }
+  nav { width:210px; flex-shrink:0; position:sticky; top:64px; }
+  main { flex:1; min-width:0; }
+  @media (max-width:720px) { .layout { flex-direction:column; } nav { width:100%; position:static; display:flex; gap:8px; overflow-x:auto; } nav .item { min-width:150px; } nav .item.child { margin-left:0; width:auto; } .navgroup { margin:0 4px; align-self:center; } }
+
+  nav .item { display:block; width:100%; text-align:left; padding:10px 12px; margin-bottom:8px; background:var(--card); border:1px solid var(--line); border-radius:8px; cursor:pointer; color:var(--text); font:inherit; }
+  nav .item.sel { border-color:var(--accent); box-shadow:inset 3px 0 0 var(--accent); }
+  nav .item .nm { font-weight:600; display:flex; align-items:center; gap:8px; }
+  nav .item .sub { font-size:12px; color:var(--muted); margin-top:2px; }
+  .navgroup { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:14px 4px 6px; white-space:nowrap; }
+  nav .item.child { margin-left:12px; width:calc(100% - 12px); }
+  .crumb { color:var(--muted); font-weight:400; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--line); flex-shrink:0; }
+  .dot.on { background:var(--ok); } .dot.mod { background:var(--warn); }
+
+  .pagehead { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .mock { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); padding-top:4px; }
+  .switch { position:relative; width:38px; height:22px; padding:0; border:0; border-radius:11px; background:var(--line); cursor:pointer; flex-shrink:0; }
+  .switch .knob { position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:var(--muted); transition:transform .15s, background .15s; }
+  .switch[aria-checked="true"] { background:var(--accent); }
+  .switch[aria-checked="true"] .knob { transform:translateX(16px); background:var(--on-accent); }
+  .switch:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .desc { color:var(--muted); margin:0 0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .cardhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  h2 { font-size:15px; margin:0; }
+  .card > h2 { margin-bottom:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:12px; }
+  label { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
+  select, input[type=text], input[type=number], textarea { width:100%; padding:7px 8px; font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; }
+  textarea { font:12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; min-height:130px; resize:vertical; }
+  button { padding:8px 14px; font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+  button.active, button.primary { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+  button:disabled { opacity:.6; cursor:default; }
+  button.dim { opacity:.55; }
+  .checks { display:flex; gap:14px; flex-wrap:wrap; }
+  .checks label { display:flex; align-items:center; gap:6px; margin:0; color:var(--text); font-size:14px; }
+  .hint { font-size:12px; color:var(--muted); margin-top:4px; }
+  /* Capability dropdowns are tinted by their value */
+  select.cap-active { border-color:var(--ok); box-shadow:inset 3px 0 0 var(--ok); }
+  select.cap-inactive { border-color:var(--warn); box-shadow:inset 3px 0 0 var(--warn); }
+  select.cap-disabled { border-color:var(--err); border-style:dashed; box-shadow:inset 3px 0 0 var(--err); }
+  /* Icon without button look (uses --muted/--text, valid in light and dark) */
+  .icon-btn { display:inline-flex; padding:6px; background:none; border:0; border-radius:6px; color:var(--muted); }
+  .icon-btn:hover { color:var(--text); }
+  .icon-btn:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .icon-btn svg { width:20px; height:20px; display:block; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .form { border-top:1px solid var(--line); margin-top:14px; padding-top:14px; display:grid; gap:12px; }
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin:-4px 0 16px; }
+  .tab { padding:8px 14px; background:none; border:0; border-bottom:2px solid transparent; border-radius:0; margin-bottom:-1px; color:var(--muted); }
+  .tab:hover { color:var(--text); }
+  .tab[aria-selected="true"] { color:var(--text); border-bottom-color:var(--accent); font-weight:600; }
+  .tab:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+  details.ep { border-top:1px solid var(--line); padding:8px 0 2px; }
+  details.ep:last-child { border-bottom:1px solid var(--line); margin-bottom:4px; }
+  details.ep > summary { color:var(--text); margin-bottom:8px; cursor:pointer; }
+  details.ep > summary .eph { display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; vertical-align:middle; }
+  .tag { font-size:11px; padding:1px 7px; border:1px solid var(--line); border-radius:10px; color:var(--muted); }
+  .tag.on { color:var(--ok); border-color:var(--ok); }
+  h3 { font-size:13px; margin:18px 0 10px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  h3:first-child { margin-top:0; }
+  details summary { cursor:pointer; font-size:13px; color:var(--muted); margin-bottom:6px; }
+  pre { margin:0 0 12px; overflow:auto; font-size:12.5px; }
+  .route { font-size:12px; color:var(--muted); margin:0 0 4px; }
+  .note { color:var(--muted); font-size:13px; margin-top:10px; }
+  .note:empty { display:none; }
+  .note.err, .err { color:var(--err); }
+  ul.paths { margin:0; padding-left:18px; font-size:13px; }
+  #flash { color:var(--muted); font-size:13px; min-height:18px; margin-bottom:6px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <strong>OLA Mocks</strong>
+  <span id="targetInfo" class="note" style="margin:0"></span>
+  <div class="spacer"></div>
+  <div class="mock" style="padding:0"><span id="masterLabel"></span>
+    <button class="switch" id="masterSwitch" role="switch" aria-checked="true"><span class="knob"></span></button></div>
+
+  <button id="resetBtn"></button>
+  <button id="themeBtn" class="icon-btn"></button>
+</header>
+
+<div class="layout">
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Texts. Ready for more languages: add another entry to MESSAGES (same keys) and change LANG.
+// There is deliberately no language selector in the UI yet: it is always English.
+// Scenario names/descriptions and field labels come from the data files and are not translated here;
+// a field label can be overridden with the key "field.<key>", a group with "group.<name>".
+// ---------------------------------------------------------------------------
+const MESSAGES = {
+  en: {
+    'header.backend': 'Real backend: {host}',
+    'header.allMocks': 'All mocks',
+    'header.allMocksOn': 'Mocks are active. Click to pause them all and send everything to the real backend.',
+    'header.allMocksOff': 'All mocks are paused: everything goes to the real backend. Click to resume.',
+    'banner.paused': 'All mocks are paused: every request goes to the real backend. Each feature keeps its scenario and state; switch "All mocks" back on to resume.',
+    'feature.mocking': 'Mocking',
+    'feature.mockingOn': 'Answered by the mocks. Click to send this feature to the real backend.',
+    'feature.mockingOff': 'Going to the real backend. Click to mock it.',
+    'feature.realNote': 'Mocking is off: the requests of this feature go to the real backend. Switch it on to use the scenario, selectors or JSON below.',
+    'badge.real': 'Real backend',
+    'header.resetAll': 'Reset all',
+    'header.resetAllTitle': 'Removes every scenario, switches every mock back on and goes back to the default values',
+    'theme.toLight': 'Switch to light mode',
+    'theme.toDark': 'Switch to dark mode',
+    'badge.default': 'Default',
+    'badge.none': 'No scenario',
+    'badge.modified': ' · modified',
+    'scenarios.title': 'Scenarios',
+    'scenarios.empty': 'No scenarios yet. Create one with +, or add a JSON file in scenarios/{id}/.',
+    'scenarios.new': 'New scenario',
+    'scenarios.clear': 'Clear scenario (back to default)',
+    'info.modified': 'Edited by hand on top of the scenario {name}.',
+    'info.noneFields': 'No scenario applied: default values are used.',
+    'info.noneRoutes': 'No scenario applied: this feature does not answer anything from here.',
+    'info.fixed': 'Fixed responses from the scenario:',
+    'info.defaultScenario': 'Default scenario: {name}.',
+    'error.file': 'Error in {file}: {msg}',
+    'endpoints.title': 'Endpoints',
+    'endpoints.note': 'While the feature is mocked, its endpoints are answered here; everything else goes to the real backend.',
+    'endpoint.mocked': 'Mocked',
+    'endpoint.real': 'Real backend',
+    'endpoint.noMock': 'No mock defined for this endpoint: it always goes to the real backend. Define one with a scenario or the JSON editor.',
+    'endpoint.pending': 'This is what it will answer once mocking is on.',
+    'editor.title': 'Response',
+    'tab.selectors': 'Selectors',
+    'tab.json': 'JSON',
+    'selectors.customNote': 'Custom JSON is in use for: {list}. Changing a selector discards it for the endpoints the selectors generate.',
+    'json.hint': 'JSON of this endpoint: method, path, status, delayMs, headers and body. Method and path must stay the same.',
+    'json.noteCustom': 'This endpoint uses your custom JSON, over the scenario and the selectors. Discard it to go back.',
+    'json.noteLive': 'This is what it answers now. Applying your edits makes this JSON its response, over the scenario and the selectors.',
+    'json.noteNone': 'No mock defined yet: it goes to the real backend. Applying this JSON defines one.',
+    'json.notObject': 'The JSON must be a single route object, not a list.',
+    'json.keyChanged': 'Method and path must stay {key}.',
+    'endpoint.custom': 'Custom JSON',
+    'json.apply': 'Apply',
+    'json.discard': 'Discard custom JSON',
+    'json.invalid': 'Not valid JSON: {msg}',
+    'form.overrideNote': 'The fixed responses and custom JSON currently in use will be saved in the scenario.',
+    'flash.jsonApplied': 'JSON applied',
+    'flash.jsonDiscarded': 'Custom JSON discarded',
+    'form.name': 'Name',
+    'form.description': 'Description (optional)',
+    'form.stateNote': 'The current values of the selectors below will be saved in the scenario.',
+    'form.routes': 'Fixed responses',
+    'form.routesOptional': 'Fixed responses (optional)',
+    'form.routesHint': 'JSON array of routes. Each one accepts method, path, status, delayMs, headers and body.',
+    'form.save': 'Create scenario',
+    'form.cancel': 'Cancel',
+    'form.nameRequired': 'A name is required.',
+    'form.routesInvalid': 'The fixed responses are not valid JSON: {msg}',
+    'flash.applied': 'Scenario applied',
+    'flash.created': 'Scenario created',
+    'flash.cleared': 'Scenario cleared',
+    'flash.updated': 'State updated',
+    'flash.resetAll': 'Everything reset',
+    'flash.error': 'Error: {msg}',
+    'value.open': 'Open',
+    'value.closed': 'Closed',
+    'value.on': 'On',
+    'value.off': 'Off',
+    'value.unknown': 'Unknown',
+    'value.null': 'Not sent',
+    'value.mod.null': 'Not set',
+    'value.mod3': 'MOD3',
+    'value.mod4': 'MOD4',
+    'value.mod5': 'MOD5',
+    'value.online': 'Online',
+    'value.offline': 'Offline',
+    'value.no-coverage': 'No coverage',
+    'field.unavailable': 'Not sent on {mod}',
+    'info.modMismatch': 'This scenario is meant for {list}, but the selected MOD is {mod}.',
+    'scenarios.meantFor': 'Meant for: {list}',
+    'form.mods': 'Valid for MOD (none selected = all)',
+    'value.default': 'Default',
+    'value.active': 'Active',
+    'value.inactive': 'Inactive',
+    'value.disabled': 'Disabled (not sent)',
+    'value.insufficient-battery-level': 'Inactive · insufficient-battery-level',
+    'value.deactivated-by-active-vehicle-user': 'Inactive · deactivated-by-active-vehicle-user',
+    'value.initially-disabled': 'Inactive · initially-disabled',
+    'value.license-expired': 'Inactive · license-expired',
+    'value.location-data-disabled': 'Inactive · location-data-disabled',
+    'value.none': 'None',
+    'value.capabilitiesSituation.insufficient-battery-level': 'Insufficient battery level',
+    'value.apply': 'Apply',
+    'value.ignore': 'Ignore',
+    'cap.title': 'Capabilities',
+    'value.true': 'Locked',
+    'value.false': 'Unlocked',
+  },
+};
+const LANG = 'en';
+const t = (key, vars = {}) =>
+  String((MESSAGES[LANG] && MESSAGES[LANG][key]) ?? MESSAGES.en[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? ''));
+// Like t(), but falls back to the text that comes with the data when there is no translation
+const tr = (key, fallback) => (MESSAGES[LANG] && MESSAGES[LANG][key]) ?? fallback;
+
+// Label of a field value: field-specific text first (e.g. value.mod.null), then the generic one
+const tv = (key, v) => tr('value.' + key + '.' + v, tr('value.' + v, String(v)));
+const modText = m => tr('value.' + m, String(m).toUpperCase());
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const SVG = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const ICON_SUN = SVG('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>');
+const ICON_MOON = SVG('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>');
+const ICON_PLUS = SVG('<path d="M12 5v14M5 12h14"/>');
+const ICON_RESET = SVG('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>');
+
+let data = { features: [] };
+let flashMsg = '';
+let draft = null; // new-scenario form: { id, name, description, routes, error }
+const tabs = {};        // selected editor tab per feature: 'selectors' | 'json'
+const jsonDrafts = {};  // JSON editor text typed but not applied yet, per feature
+const jsonErrors = {};  // last error shown under the JSON editor, per feature
+const endpointOpen = {}; // open/closed state of each endpoint block
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined });
+  return r.json();
+}
+
+function currentId() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  return data.features.some(f => f.id === id) ? id : (data.features[0] && data.features[0].id);
+}
+
+// Capability fields (and Global's capabilities situation) live in their own card, not among the selectors
+const isCap = fl => fl.group === 'Capabilities';
+
+function badge(f) {
+  if (!f.mocking) return { dot: '', text: t('badge.real') };
+  const mod = f.modified ? t('badge.modified') : '';
+  if (f.scenario) {
+    const name = (f.scenarios.find(s => s.key === f.scenario) || {}).name || f.scenario;
+    return { dot: f.modified ? 'mod' : 'on', text: name + mod };
+  }
+  return f.fields.some(fl => !isCap(fl)) ? { dot: f.modified ? 'mod' : '', text: t('badge.default') + mod } : { dot: '', text: t('badge.none') };
+}
+
+function render() {
+  const id = currentId();
+  // Features that share a `group` are independent units shown under one title
+  document.getElementById('nav').innerHTML = data.features.map((f, i) => {
+    const b = badge(f);
+    const head = f.group && (i === 0 || data.features[i - 1].group !== f.group) ? `<div class="navgroup">${esc(f.group)}</div>` : '';
+    return `${head}<button class="item ${f.group ? 'child' : ''} ${f.id === id ? 'sel' : ''}" data-f="${esc(f.id)}"><div class="nm"><span class="dot ${b.dot}"></span>${esc(f.name)}</div><div class="sub">${esc(b.text)}</div></button>`;
+  }).join('');
+  document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { location.hash = b.dataset.f; });
+
+  const f = data.features.find(x => x.id === id);
+  if (!f) { document.getElementById('main').innerHTML = ''; return; }
+  if (draft && draft.id !== f.id) draft = null;
+
+  // Scenarios
+  const mismatch = s => Boolean(s.mods && data.mod && !data.ignoreMods && !s.mods.includes(data.mod));
+  const modList = s => s.mods.map(modText).join(', ');
+  const info = [];
+  if (f.scenario) {
+    const sc = f.scenarios.find(s => s.key === f.scenario);
+    if (sc && sc.description) info.push(esc(sc.description));
+    if (f.modified) info.push('<strong>' + esc(t('info.modified', { name: f.scenario })) + '</strong>');
+    if (sc && mismatch(sc)) info.push('<span class="err">' + esc(t('info.modMismatch', { list: modList(sc), mod: modText(data.mod) })) + '</span>');
+  } else info.push(esc(t(f.fields.some(fl => !isCap(fl)) ? 'info.noneFields' : 'info.noneRoutes')));
+  if (f.defaultScenario) info.push(esc(t('info.defaultScenario', { name: (f.scenarios.find(s => s.key === f.defaultScenario) || {}).name || f.defaultScenario })));
+  if (f.fixedRoutes.length) info.push(esc(t('info.fixed')) + ' ' + f.fixedRoutes.map(r => '<code>' + esc(r) + '</code>').join(', '));
+
+  const scenarios = f.scenarios.length
+    ? f.scenarios.map(s => `<button data-sc="${esc(s.key)}" class="${f.scenario === s.key ? 'active' : ''} ${mismatch(s) ? 'dim' : ''}" title="${esc([s.description, s.mods ? t('scenarios.meantFor', { list: modList(s) }) : ''].filter(Boolean).join(' — '))}">${esc(s.name)}</button>`).join('')
+    : `<span class="note" style="margin:0">${esc(t('scenarios.empty', { id: f.id }))}</span>`;
+  const errors = Object.entries(f.errors).map(([k, e]) => esc(t('error.file', { file: f.id + '/' + k + '.json', msg: e.join('; ') }))).join('<br>');
+
+  // Nothing to undo when the feature is already at its starting point (its default scenario, or none)
+  const canClear = f.modified || f.scenario !== f.defaultScenario;
+  const icons = `<div class="row" style="gap:2px">
+      ${canClear ? `<button class="icon-btn" id="clearSc" title="${esc(t('scenarios.clear'))}" aria-label="${esc(t('scenarios.clear'))}">${ICON_RESET}</button>` : ''}
+      <button class="icon-btn" id="newSc" title="${esc(t('scenarios.new'))}" aria-label="${esc(t('scenarios.new'))}">${ICON_PLUS}</button></div>`;
+
+  // New scenario form
+  let form = '';
+  if (draft) {
+    const [m, p] = (f.paths[0] || 'GET /').split(' ');
+    const placeholder = JSON.stringify([{ method: m, path: p, status: 200, body: {} }], null, 2);
+    form = `<div class="form">
+      <div><label for="dName">${esc(t('form.name'))}</label><input type="text" id="dName" maxlength="80" value="${esc(draft.name)}"></div>
+      <div><label for="dDesc">${esc(t('form.description'))}</label><input type="text" id="dDesc" value="${esc(draft.description)}"></div>
+      ${f.fields.length ? `<div class="note" style="margin:0">${esc(t('form.stateNote'))}</div>` : ''}
+      ${f.currentFixedRoutes.length ? `<div class="note" style="margin:0">${esc(t('form.overrideNote'))}</div>` : ''}
+      <div><label>${esc(t('form.mods'))}</label><div class="checks">${data.mods.map(m => `<label><input type="checkbox" data-mod="${esc(m)}" ${draft.mods.includes(m) ? 'checked' : ''}> ${esc(modText(m))}</label>`).join('')}</div></div>
+      <details ${(!f.fields.length || draft.routes) ? 'open' : ''}><summary>${esc(t(f.fields.length ? 'form.routesOptional' : 'form.routes'))}</summary>
+        <textarea id="dRoutes" spellcheck="false" placeholder="${esc(placeholder)}">${esc(draft.routes)}</textarea>
+        <div class="note" style="margin-top:6px">${esc(t('form.routesHint'))}</div></details>
+      <div class="note err" style="margin:0">${esc(draft.error || '')}</div>
+      <div class="row"><button class="primary" id="dSave">${esc(t('form.save'))}</button><button id="dCancel">${esc(t('form.cancel'))}</button></div>
+    </div>`;
+  }
+
+  // Response editor: selectors (generated from f.fields, grouped) or raw JSON
+  const selFields = f.fields.filter(fl => !isCap(fl));
+  const capFields = f.fields.filter(isCap);
+  const hasSel = selFields.length > 0;
+  const tab = hasSel ? (tabs[f.id] || 'selectors') : 'json';
+  const groups = [];
+  for (const fl of selFields) { let g = groups.find(x => x.name === fl.group); if (!g) groups.push(g = { name: fl.group, fields: [] }); g.fields.push(fl); }
+  // One collapsible block per endpoint: the feature's documented paths plus any extra route a scenario / JSON defines.
+  // With a single endpoint it starts open; the choice is remembered across re-renders.
+  const keyOf = r => `${String(r.method).toUpperCase()} ${r.path}`;
+  const answers = Object.fromEntries(f.effectiveRoutes.map(r => [keyOf(r), r]));
+  const endpointKeys = [...f.paths, ...Object.keys(answers).filter(k => !f.paths.includes(k))];
+  const live = f.mocking && data.mockingEnabled;
+  // Summary of an endpoint: route, whether it is mocked, status / delay if unusual, and whether it has custom JSON
+  const epHead = k => {
+    const r = answers[k];
+    const mocked = Boolean(r) && live;
+    const extra = r && (r.status && r.status !== 200 || r.delayMs) ? `<span class="tag">${esc([r.status && r.status !== 200 ? r.status : '', r.delayMs ? r.delayMs + ' ms' : ''].filter(Boolean).join(' · '))}</span>` : '';
+    const custom = f.customKeys.includes(k) ? `<span class="tag on">${esc(t('endpoint.custom'))}</span>` : '';
+    return `<span class="eph"><code>${esc(k)}</code><span class="tag ${mocked ? 'on' : ''}">${esc(t(mocked ? 'endpoint.mocked' : 'endpoint.real'))}</span>${custom}${extra}</span>`;
+  };
+  const endpoints = endpointKeys.map(k => {
+    const r = answers[k];
+    const open = (f.id + '|' + k) in endpointOpen ? endpointOpen[f.id + '|' + k] : endpointKeys.length === 1;
+    const body = r
+      ? `${live ? '' : `<div class="note" style="margin:0 0 8px">${esc(t('endpoint.pending'))}</div>`}<pre>${esc(JSON.stringify(r.body === undefined ? {} : r.body, null, 2))}</pre>`
+      : `<div class="note" style="margin:0 0 10px">${esc(t('endpoint.noMock'))}</div>`;
+    return `<details class="ep" data-pk="${esc(f.id + '|' + k)}" ${open ? 'open' : ''}><summary>${epHead(k)}</summary>${body}</details>`;
+  }).join('');
+
+  // One input per field: a dropdown, or a free number input (empty = not sent)
+  const control = (f, fl) => {
+    // capability dropdowns are tinted by their value: active green, inactive (any reason) amber, disabled red
+    const tint = fl.capability ? ({ default: '', active: 'cap-active', disabled: 'cap-disabled' }[f.state[fl.key]] ?? 'cap-inactive') : '';
+    const common = `id="${esc(fl.key)}" data-key="${esc(fl.key)}" class="${tint}" ${fl.unavailable ? 'disabled' : ''}`;
+    const cur = f.state[fl.key];
+    if (fl.type === 'number') {
+      return `<input ${common} type="number" step="any" data-type="number" value="${esc(cur === null || cur === undefined ? '' : cur)}" placeholder="${esc(t('value.null'))}">`;
+    }
+    return `<select ${common}>${fl.options.map(v => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(tv(fl.key, v))}</option>`).join('')}</select>`;
+  };
+
+  // A label + input + hints for one field
+  const fieldHtml = fl => `<div><label for="${esc(fl.key)}">${esc(tr('field.' + fl.key, fl.label))}</label>
+      ${control(f, fl)}
+      ${fl.unavailable ? `<div class="hint err">${esc(t('field.unavailable', { mod: modText(data.mod) }))}</div>` : ''}
+      ${fl.hint ? `<div class="hint">${esc(tr('hint.' + fl.key, fl.hint))}</div>` : ''}</div>`;
+  const selectorsPanel = `
+    ${f.customKeys.length ? `<div class="note err" style="margin:0 0 12px">${esc(t('selectors.customNote', { list: f.customKeys.join(', ') }))}</div>` : ''}
+    ${groups.map(g => `<h3>${esc(tr('group.' + g.name, g.name))}</h3><div class="grid">${g.fields.map(fieldHtml).join('')}</div>`).join('')}`;
+
+  // Capabilities card (Global): each capability once, grouped by the screen of the app; the explanation is a tooltip
+  const capItem = (fl, label, tip) => `<div><label for="${esc(fl.key)}" ${tip ? `title="${esc(tip)}"` : ''}>${esc(label)}</label>
+      ${control(f, fl)}${fl.unavailable ? `<div class="hint err">${esc(t('field.unavailable', { mod: modText(data.mod) }))}</div>` : ''}</div>`;
+  const capCard = f.capabilityGroups ? (() => {
+    const byKey = Object.fromEntries(capFields.map(fl => [fl.key, fl]));
+    const situation = capFields.find(fl => !fl.capability);
+    return `<div class="card"><div class="cardhead"><h2>${esc(t('cap.title'))}</h2></div>
+      ${situation ? `<div class="grid">${capItem(situation, situation.label, situation.hint)}</div>` : ''}
+      ${f.capabilityGroups.map(g => `<h3>${esc(g.name)}</h3><div class="grid">${g.items.map(it => capItem(byKey[it.key], it.id, it.hint)).join('')}</div>`).join('')}</div>`;
+  })() : '';
+
+  // JSON tab: one editor per endpoint, each applied on its own
+  const jsonPanel = endpointKeys.map(k => {
+    const dk = f.id + '|' + k;
+    const r = answers[k];
+    const [m, ...rest] = k.split(' ');
+    const text = jsonDrafts[dk] ?? JSON.stringify(r || { method: m, path: rest.join(' '), status: 200, body: {} }, null, 2);
+    const custom = f.customKeys.includes(k);
+    const open = dk in endpointOpen ? endpointOpen[dk] : (endpointKeys.length === 1 || Boolean(jsonErrors[dk]));
+    return `<details class="ep" data-pk="${esc(dk)}" ${open ? 'open' : ''}><summary>${epHead(k)}</summary>
+      <textarea class="json" data-jedit rows="${Math.min(18, Math.max(6, text.split('\n').length + 1))}" spellcheck="false" aria-label="${esc(k)}">${esc(text)}</textarea>
+      <div class="note">${esc(t('json.hint'))}</div>
+      <div class="note">${esc(t(custom ? 'json.noteCustom' : r ? 'json.noteLive' : 'json.noteNone'))}</div>
+      <div class="note err">${esc(jsonErrors[dk] || '')}</div>
+      <div class="row" style="margin:12px 0 4px"><button class="primary" data-japply="${esc(k)}">${esc(t('json.apply'))}</button>
+        ${custom ? `<button data-jdiscard="${esc(k)}">${esc(t('json.discard'))}</button>` : ''}</div></details>`;
+  }).join('');
+
+  const editor = `<div class="card"><div class="cardhead"><h2>${esc(t('editor.title'))}</h2></div>
+    ${hasSel ? `<div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="selectors" aria-selected="${tab === 'selectors'}">${esc(t('tab.selectors'))}</button>
+      <button class="tab" role="tab" data-tab="json" aria-selected="${tab === 'json'}">${esc(t('tab.json'))}</button></div>` : ''}
+    <div role="tabpanel">${tab === 'selectors' ? selectorsPanel : jsonPanel}</div></div>`;
+
+  document.getElementById('main').innerHTML = `
+    <div class="pagehead"><div><h1>${f.group ? `<span class="crumb">${esc(f.group)} ·</span> ` : ''}${esc(f.name)}</h1><p class="desc">${esc(f.description)}</p></div>
+      <div class="mock"><span>${esc(t('feature.mocking'))}</span>
+        <button class="switch" id="mockSwitch" role="switch" aria-checked="${f.mocking}" aria-label="${esc(t('feature.mocking'))}" title="${esc(t(f.mocking ? 'feature.mockingOn' : 'feature.mockingOff'))}"><span class="knob"></span></button></div></div>
+    ${data.mockingEnabled ? '' : `<div class="note err" style="margin:0 0 10px">${esc(t('banner.paused'))}</div>`}
+    ${f.mocking ? '' : `<div class="note err" style="margin:0 0 10px">${esc(t('feature.realNote'))}</div>`}
+    <div id="flash">${esc(flashMsg)}</div>
+    <div class="card"><div class="cardhead"><h2>${esc(t('scenarios.title'))}</h2>${icons}</div>
+      <div class="row">${scenarios}</div>
+      <div class="note">${info.join('<br>')}</div><div class="note err">${errors}</div>${form}</div>
+    ${editor}
+    ${capCard}
+    ${tab === 'selectors' ? `<div class="card"><h2>${esc(t('endpoints.title'))}</h2>
+      ${endpoints}
+      <div class="note">${esc(t('endpoints.note'))}</div></div>` : ''}`;
+
+  document.getElementById('mockSwitch').onclick = async () => { await api('POST', `/api/features/${f.id}/mocking`, { enabled: !f.mocking }); await load(); };
+  document.querySelectorAll('details[data-pk]').forEach(d => d.ontoggle = () => { endpointOpen[d.dataset.pk] = d.open; });
+  document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tabs[f.id] = b.dataset.tab; render(); });
+  document.querySelectorAll('[data-jedit]').forEach(ta => {
+    ta.oninput = () => { jsonDrafts[f.id + '|' + ta.closest('details').dataset.pk.split('|').slice(1).join('|')] = ta.value; };
+  });
+  document.querySelectorAll('[data-japply]').forEach(b => b.onclick = () => applyRoute(f, b.dataset.japply, b.closest('details').querySelector('textarea').value));
+  document.querySelectorAll('[data-jdiscard]').forEach(b => b.onclick = () => discardRoute(f, b.dataset.jdiscard));
+  document.querySelectorAll('[data-sc]').forEach(b => b.onclick = async () => { const r = await api('POST', `/api/features/${f.id}/scenario/${b.dataset.sc}`); await load(r.error ? t('flash.error', { msg: r.error }) : t('flash.applied')); });
+  const clr = document.getElementById('clearSc'); if (clr) clr.onclick = async () => { await api('POST', `/api/features/${f.id}/reset`); await load(t('flash.cleared')); };
+  document.getElementById('newSc').onclick = () => { draft = draft ? null : { id: f.id, name: '', description: '', routes: '', mods: [], error: '' }; render(); const n = document.getElementById('dName'); if (n) n.focus(); };
+  if (draft) {
+    document.getElementById('dName').oninput = e => { draft.name = e.target.value; };
+    document.getElementById('dDesc').oninput = e => { draft.description = e.target.value; };
+    document.getElementById('dRoutes').oninput = e => { draft.routes = e.target.value; };
+    document.querySelectorAll('[data-mod]').forEach(c => c.onchange = () => { draft.mods = [...document.querySelectorAll('[data-mod]:checked')].map(x => x.dataset.mod); });
+    document.getElementById('dCancel').onclick = () => { draft = null; render(); };
+    document.getElementById('dSave').onclick = () => saveDraft(f);
+  }
+  document.querySelectorAll('[data-key]').forEach(s => s.onchange = async () => {
+    const raw = s.value;
+    let value;
+    if (s.dataset.type === 'number') value = raw.trim() === '' ? null : Number(raw);
+    else value = raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : raw;
+    const r = await api('PUT', `/api/features/${f.id}/state`, { [s.dataset.key]: value });
+    await load(r.error ? t('flash.error', { msg: r.error }) : t('flash.updated'));
+  });
+}
+
+// Apply the JSON typed for one endpoint
+async function applyRoute(f, k, text) {
+  const dk = f.id + '|' + k;
+  jsonDrafts[dk] = text; // keep what was typed if it fails
+  let route;
+  try { route = JSON.parse(text); }
+  catch (e) { jsonErrors[dk] = t('json.invalid', { msg: e.message }); return render(); }
+  if (!route || typeof route !== 'object' || Array.isArray(route)) { jsonErrors[dk] = t('json.notObject'); return render(); }
+  if (`${String(route.method).toUpperCase()} ${route.path}` !== k) { jsonErrors[dk] = t('json.keyChanged', { key: k }); return render(); }
+  const r = await api('PUT', `/api/features/${f.id}/route`, { route });
+  if (r.error) { jsonErrors[dk] = r.error; return render(); }
+  delete jsonErrors[dk]; delete jsonDrafts[dk];
+  await load(t('flash.jsonApplied'), true);
+}
+
+async function discardRoute(f, k) {
+  const [m, ...rest] = k.split(' ');
+  await api('DELETE', `/api/features/${f.id}/route?method=${encodeURIComponent(m)}&path=${encodeURIComponent(rest.join(' '))}`);
+  delete jsonErrors[f.id + '|' + k]; delete jsonDrafts[f.id + '|' + k];
+  await load(t('flash.jsonDiscarded'), true);
+}
+
+async function saveDraft(f) {
+  const name = draft.name.trim();
+  if (!name) { draft.error = t('form.nameRequired'); return render(); }
+  const body = { name };
+  if (draft.description.trim()) body.description = draft.description.trim();
+  if (f.fields.length) body.state = f.state; // save what is currently selected
+  if (draft.mods.length) body.mods = draft.mods;
+  if (draft.routes.trim()) {
+    try { body.routes = JSON.parse(draft.routes); }
+    catch (e) { draft.error = t('form.routesInvalid', { msg: e.message }); return render(); }
+  } else if (f.currentFixedRoutes.length) body.routes = f.currentFixedRoutes; // keep the fixed responses and custom JSON in force
+  const r = await api('POST', `/api/features/${f.id}/scenarios`, body);
+  if (r.error) { draft.error = r.error; return render(); }
+  draft = null;
+  await load(t('flash.created'));
+}
+
+async function load(msg, keep) {
+  if (msg && !keep) { for (const k of Object.keys(jsonDrafts)) delete jsonDrafts[k]; for (const k of Object.keys(jsonErrors)) delete jsonErrors[k]; } // a change made elsewhere makes typed JSON stale
+  data = await api('GET', '/api/state');
+  paintMaster();
+  try { document.getElementById('targetInfo').textContent = t('header.backend', { host: new URL(data.target).host }); } catch (e) {}
+  flashMsg = msg || '';
+  render();
+  if (msg) setTimeout(() => { flashMsg = ''; const el = document.getElementById('flash'); if (el) el.textContent = ''; }, 2500);
+}
+
+function paintMaster() {
+  const sw = document.getElementById('masterSwitch');
+  document.getElementById('masterLabel').textContent = t('header.allMocks');
+  sw.setAttribute('aria-checked', String(data.mockingEnabled));
+  sw.title = t(data.mockingEnabled ? 'header.allMocksOn' : 'header.allMocksOff');
+  sw.setAttribute('aria-label', t('header.allMocks'));
+}
+
+// Light/dark theme: with no saved choice the system theme is used
+const isDark = () => {
+  const th = document.documentElement.dataset.theme;
+  return th ? th === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+};
+function paintThemeBtn() {
+  const btn = document.getElementById('themeBtn');
+  const label = t(isDark() ? 'theme.toLight' : 'theme.toDark');
+  btn.innerHTML = isDark() ? ICON_SUN : ICON_MOON;
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+}
+document.getElementById('themeBtn').onclick = () => {
+  const next = isDark() ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('theme', next); } catch (e) {}
+  paintThemeBtn();
+};
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintThemeBtn);
+
+document.getElementById('resetBtn').textContent = t('header.resetAll');
+document.getElementById('resetBtn').title = t('header.resetAllTitle');
+document.getElementById('masterSwitch').onclick = async () => { await api('POST', '/api/mocking', { enabled: !data.mockingEnabled }); await load(); };
+document.getElementById('resetBtn').onclick = async () => { await api('POST', '/api/reset'); load(t('flash.resetAll')); };
+window.addEventListener('hashchange', render);
+paintThemeBtn();
+load();
+</script>
+</body>
+</html>
