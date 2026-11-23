@@ -438,7 +438,7 @@ function checkBackendTls() {
 }
 
 app.listen(port, () => {
-    console.log(`ola-mocks listening on http://localhost:${port}`);
+    console.log(`ola-mocks-tool listening on http://localhost:${port}`);
     console.log(`  Real backend (anything not mocked): ${TARGET_HOST}`);
     checkBackendTls();
     for (const f of features) {
