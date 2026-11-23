@@ -1,4 +1,4 @@
-# ola-mocks
+# ola-mocks-tool
 
 Servidor local para mockear las respuestas del backend de OLA (apps MyCupra y MySeat) y probar escenarios sin depender del BE real. Las apps llegan a este servidor a través de Charles (Map Remote).
 

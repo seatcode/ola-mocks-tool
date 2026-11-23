@@ -1,5 +1,5 @@
 {
-  "name": "ola-mocks",
+  "name": "ola-mocks-tool",
   "version": "1.0.0",
   "description": "PoC to mock OLA in Prod env",
   "license": "ISC",
